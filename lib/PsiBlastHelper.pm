@@ -5,6 +5,7 @@ use strict;
 use warnings;
 no warnings 'experimental::smartmatch';
 use Exporter qw/import/;
+use Carp;
 use Getopt::Long;
 use Pod::Usage;
 use Data::Dumper;
@@ -19,7 +20,7 @@ our @EXPORT_OK = qw{
   main
   init_logging
   get_parameters_from_cmd
-  write_chunks
+  split_fasta
   sge_blast_combined
   condor_blast_combined
   condor_blast_combined_sh
@@ -59,7 +60,7 @@ sub run {
     $log->debug("$param_print") if $verbose;
 
     # split input fasta file to chunks
-    my ( $num_large, $num_normal ) = write_chunks($param_href);
+    my ( $num_large, $num_normal ) = split_fasta($param_href);
     $param_href = { num_l => $num_large, num_n => $num_normal, %{$param_href} };
     if ($verbose) { $log->debug( '$param_href after chunking', Dumper($param_href) ); }
 
@@ -142,10 +143,10 @@ sub get_parameters_from_cmd {
         'out|o=s'       => \$cli{out},
         'outfile|of=s'  => \$cli{outfile},
 
-        'chunk_num|n=i'     => \$cli{chunk_num},
+        'chunk_size|n=i'     => \$cli{chunk_size},
         'chunk_name|name=s' => \$cli{chunk_name},
         'top|t=i'           => \$cli{top},
-        'size|s=i'          => \$cli{size},
+        'fasta_size|s=i'    => \$cli{fasta_size},
         'cpu|c=i'           => \$cli{cpu},
         'cpu_l|cl=i'        => \$cli{cpu_l},
         'db|d=s'            => \$cli{db},
@@ -319,201 +320,257 @@ sub init_logging {
 
 
 ### WORKING SUB ###
-# Usage      : write_chunks(  );
+# Usage      : split_fasta(  );
 # Purpose    : splits fasta file into chunks
 # Returns    : nothing
 # Parameters : ( all from command line )
 # Throws     : croaks if wrong number of arguments
 # Comments   : splits fasta, writes chunks, longest sequences
 # See Also   :
-sub write_chunks {
+sub split_fasta {
     my $log = Log::Log4perl::get_logger("main");
-    $log->logcroak( 'write_chunks() needs a hash_ref' ) unless @_ == 1;
+    $log->logcroak('split_fasta() needs a hash_ref') unless @_ == 1;
     my ($param_href) = @_;
 
-    my $infile     = $param_href->{infile}      or $log->logcroak('no $infile specified on command line!');
-    my $out        = $param_href->{out}         or $log->logcroak('no $out specified on command line!');
-    my $chunk_num  = $param_href->{chunk_num}   or $log->logcroak('no $chunk_num specified on command line!');
-    my $chunk_name = $param_href->{chunk_name}  or $log->logcroak('no chunk_name specified on command line!');
+    my $infile     = $param_href->{infile}     or $log->logcroak('no $infile specified on command line!');
+    my $out        = $param_href->{out}        or $log->logcroak('no $out specified on command line!');
+    my $chunk_size = $param_href->{chunk_size} or $log->logcroak('no $chunk_size specified on command line!');
+    my $chunk_name = $param_href->{chunk_name} or $log->logcroak('no $chunk_name specified on command line!');
     my $top        = $param_href->{top};
-    my $size       = $param_href->{size};
+    my $fasta_size = $param_href->{fasta_size};
     my $append     = $param_href->{append};
 
-	#clean $out directory before use
-	if ( -d $out ) {
-            path($out)->remove_tree and $log->warn(qq|Action: dir $out removed and cleaned|);
-        }
-    path( $out )->mkpath and $log->trace(qq|Action: dir $out created empty|);
-
-    #define number of chunks and chunk name
-    open( my $fh_instream, "<", $param_href->{infile} ) or $log->logdie( "error opening input file $param_href->{infile}:$!" );
-    my $chunksize;
-    my $countseq = 0;
-    my $remainder;
-    my %fasta;    #FORMAT:header => [length, fasta_seq]
-    my $header;
-
-    #start working code
-    {
-        local $/ = '>';
-
-        #calculate size of chunks and remaining sequences
-        while ( my $line = <$fh_instream> ) {
-            chomp $line;
-
-            if ($line =~ m{\A([^\v]+)\v    #header of seq till first vertical space
-                (.+)\z                     #fasta_seq
-                }xms
-              )
-            {
-                $countseq++;
-                $header = $1;
-                my $fasta_seq = $2;
-				$fasta_seq =~ s/\R//g;
-				$fasta_seq = uc $fasta_seq;
-				$fasta_seq =~ tr/A-Z*//dc;
-                my $fasta_len = length $fasta_seq;
-
-                #add to complex hash
-                $fasta{$header} = [ $fasta_len, $fasta_seq ];
-            }
-        }
-        close $fh_instream;
-
-        #calculate chunksize and remainder
-        $log->info( 'Num of seq: ',    $countseq );;
-        $log->info( 'Num of chunks: ', $param_href->{chunk_num} );
-        $chunksize = int( $countseq / $param_href->{chunk_num} );
-        $log->info( 'Num of seq in chunk: ', $chunksize );
-        $remainder = $countseq % $param_href->{chunk_num};
-        $log->info( 'Num of seq left without chunk: ', $remainder );
-
-   #find the longest sequences
-   #get the values out from aref [seq_len, fasta], pull first value from array_ref with map, sort numerically descending
-   #print Dumper(\%fasta);
-        my @all = sort { $b <=> $a } map { $_->[0] } values %fasta;
-
-        #print all only for small inputs
-        say "All seq lengths: @all" if scalar @all < 10;
-
-        #longest seqs depends on top or size
-        my @longest;
-        if ( $top and $size ) {
-            $log->logdie( "Error: choose either -t or -s option, not both");
-        }
-        elsif ($top) {
-            @longest = @all[ 0 .. $top - 1 ];   #sorted from longest so this works
-            $log->warn( "Top $top:@longest");
-        }
-        elsif ($size) {
-            @longest = grep { $_ > $size } @all;
-            $log->warn("Larger than $size {", scalar @longest, " seq}: @longest");
-        }
-        else {
-            $log->logdie( "Error: choose either -t or -s option" );
-        }
-
-        #extract longest sequences
-        my %only_large;
-        my %only_normal;
-        while ( my ( $key, $value ) = each %fasta ) {
-            foreach my $num (@longest) {
-                if ( $num == $fasta{$key}[0] ) {
-
-                    #say "veli: >$key\t$fasta{$key}[0]\t$fasta{$key}[1]";
-                    $only_large{$key} = $fasta{$key};
-                }
-            }
-            $only_normal{$key} = $fasta{$key}[1];    #here are all sequences not only normal
-        }
-
-        #print Dumper(\%only_large);
-        #print Dumper(\%only_normal);
-
-        #delete longest sequences from normal sequences
-        delete @only_normal{ keys %only_large };    #hash slice
-                                                    #print Dumper(\%only_normal);
-
-        #print out large sequences one by one
-        my $index = 1;
-        foreach my $gene ( keys %only_large ) {
-            my $largeseq = path( $out, $chunk_name . '_large' . $index )->canonpath;
-            open( my $fh_large, ">", $largeseq ) or $log->logdie("Error: can't open large output file:$largeseq:$!");
-
-            #say "$index>$gene\n$only_large{$gene}[1]";
-            say {$fh_large} ">$gene\n$only_large{$gene}[1]";
-            $log->debug("File_large: ", path($largeseq)->basename);
-            $index++;
-			close $fh_large;
-        }
-
-        #print out all normal sequences
-        my $counter_normal = 0;    #counter for each sequence
-        my @bucket;                #array holding seqs for print
-        my $chunk = 0;             #counter for each chunk
-
-        #loop for all sequences
-        while ( my ( $name, $seq ) = each %only_normal ) {
-            $counter_normal++;     #say $counter_normal;
-
-            #push already formated sequences
-            push @bucket, ">$name\n$seq\n";
-
-            #say "Before: @bucket";
-
-            #for each full container equal to chunksize
-            if ( $counter_normal % $chunksize == 0 ) {
-
-                #say "After: ", @bucket;
-                $chunk++;    #increment before so you don't need to change last append name
-
-                my $normal_seq = path( $out, $chunk_name . $chunk )->canonpath;
-                open( my $fh_normal, ">", $normal_seq ) or $log->logdie("Can't open normal output file $normal_seq:$!");
-                print {$fh_normal} @bucket;
-                $log->debug("File: ", path($normal_seq)->basename);
-                @bucket = ();    #empty each bucket for new chunk
-                close $fh_normal;
-            }
-
-            #for remainder of sequences append to last file (add number of long sequences)
-            elsif ( $counter_normal == $chunksize * $chunk_num + $remainder - scalar @longest ) {
-
-                #print "Last: ", @bucket;
-                #different behaviour depending on append option
-                if ($append) {    #append to previous file
-                    my $normal_seq = path( $out, $chunk_name . $chunk )->canonpath;
-                    open( my $fh_normal, ">>", $normal_seq ) or die "Can't open apppended output file $normal_seq:$!\n";
-                    print {$fh_normal} @bucket;
-					my $append_cnt = @bucket;
-                    $log->debug("File ", path($normal_seq)->basename, " appended $append_cnt sequences");
-                    @bucket = ();
-                    close $fh_normal;
-                }
-                else {            #default is to create new file and put there
-                    $chunk++;
-                    my $normal_seq = path( $out, $chunk_name . $chunk )->canonpath;
-                    open( my $fh_normal, ">", $normal_seq ) or die "Can't open remainder output file $normal_seq:$!\n";
-                    print {$fh_normal} @bucket;
-                    $log->debug('File ', path($normal_seq)->basename, ' remainder');
-                    @bucket = ();
-                    close $fh_normal;
-                }
-            }
-        }
-        $log->trace('Returning num of longest: ', scalar @longest, ' and num of chunks: ', $chunk);
-        return ( scalar @longest, $chunk );
+    #clean $out directory before use
+    if ( -d $out ) {
+        path($out)->remove_tree and $log->warn(qq|Action: dir $out removed and cleaned|);
     }
+    path($out)->mkpath and $log->trace(qq|Action: dir $out created empty|);
+
+    # load fasta sequences into hash
+    # FORMAT:header => [length, fasta_seq]
+    my $fasta_href = _load_fasta($param_href);
+
+    # find and print the longest sequences
+    my ( $only_normal_href, $longest_cnt ) = _print_longest_seq( { fasta => $fasta_href, %{$param_href} } );
+
+    # print out all normal sequences
+    my $chunk_cnt = _print_normal_seq( { normal_seq => $only_normal_href, %{$param_href} } );
+
+    $log->info( 'Returning num of longest: ', $longest_cnt, ' and num of chunks: ', $chunk_cnt );
+    return ( $longest_cnt, $chunk_cnt );
+
+}
+
+
+### INTERNAL UTILITY ###
+# Usage      : my $fasta_href = _load_fasta($param_href);
+# Purpose    : read and push fasta sequences into hash to use later to split them based on length
+# Returns    : $hash_ref of fasta sequences
+# Parameters : $param_href
+# Throws     : croaks if wrong number of parameters
+# Comments   : 
+# See Also   : split_fasta() calls it
+sub _load_fasta {
+    my $log = Log::Log4perl::get_logger("main");
+    $log->logcroak('_load_fasta() needs a $param_href') unless @_ == 1;
+    my ($param_href) = @_;
+
+    # load fasta sequences into hash
+    # FORMAT:header => [length, fasta_seq]
+    open( my $fh_instream, "<", $param_href->{infile} )
+      or $log->logdie("error opening input file $param_href->{infile}:$!");
+    my $countseq = 0;
+    my %fasta;
+
+    # start fasta reading
+    local $/ = '>';
+
+    # calculate number of fasta sequences and their length
+    while ( my $line = <$fh_instream> ) {
+        chomp $line;
+
+        if ($line =~ m{\A([^\s+]+)\s+    #header of seq till first space
+                (.+)\z                   #fasta_seq
+                }xms
+          )
+        {
+            $countseq++;
+            my $header = $1;
+            my $fasta_seq = $2;
+            $fasta_seq =~ s/\R//g;
+            $fasta_seq = uc $fasta_seq;
+            $fasta_seq =~ tr/A-Z*//dc;
+            my $fasta_len = length $fasta_seq;
+
+            # add to complex hash
+            $fasta{$header} = [ $fasta_len, $fasta_seq ];
+        }
+    }
+    close $fh_instream;
+
+    # report summary statistics of fasta sequences
+    $log->info( 'Num of seq: ',    $countseq );
+    $log->info( 'Num of seq in chunk: ', $param_href->{chunk_size} );
+    my $num_of_chunks = int( $countseq / $param_href->{chunk_size} );
+    $log->info( 'Num of chunks: ', $num_of_chunks );
+    my $remainder = $countseq % $param_href->{chunk_size};
+    $log->info( 'Num of seq left without chunk: ', $remainder );
+
+    return \%fasta;
+}
+
+
+### CLASS METHOD/INSTANCE METHOD/INTERFACE SUB/INTERNAL UTILITY ###
+# Usage      : my ($only_normal_href, $longest_cnt) = _print_longest_seq( { fasta => $fasta_href, %{$param_href} } );
+# Purpose    : prints longest sequences separately 
+# Returns    : 
+# Parameters : 
+# Throws     : croaks if wrong number of parameters
+# Comments   : 
+# See Also   : split_fasta() calls it
+sub _print_longest_seq {
+    my $log = Log::Log4perl::get_logger("main");
+    $log->logcroak('_print_longest_seq() needs a $param_href') unless @_ == 1;
+    my ($param_href) = @_;
+    my %fasta = %{$param_href->{fasta}};
+
+    # find the longest sequences
+    # get the values out from aref [seq_len, fasta], pull first value from array_ref with map, sort numerically descending
+    # print Dumper(\%fasta);
+    my @all = sort { $b <=> $a } map { $_->[0] } values %fasta;
+
+    #print all only for small inputs
+    say "All seq lengths: @all" if scalar @all < 10;
+
+    #longest seqs depends on top or size
+    my @longest;
+    if ( $param_href->{top} and $param_href->{fasta_size} ) {
+        $log->logdie("Error: choose either -t or -s option, not both");
+    }
+    elsif ($param_href->{top}) {
+        @longest = @all[ 0 .. $param_href->{top} - 1 ];    #sorted from longest so this works
+        $log->warn("Top $param_href->{top}:@longest");
+    }
+    elsif ($param_href->{fasta_size}) {
+        @longest = grep { $_ > $param_href->{fasta_size} } @all;
+        $log->warn( "Larger than $param_href->{fasta_size} {", scalar @longest, " seq}: @longest" );
+    }
+    else {
+        $log->logdie("Error: choose either -t or -s option");
+    }
+
+    # extract longest sequences
+    my %only_large;
+    my %only_normal;
+    while ( my ( $gene_name, $aref ) = each %fasta ) {
+        foreach my $num (@longest) {
+            if ( $num == $fasta{$gene_name}[0] ) {
+                $only_large{$gene_name} = $fasta{$gene_name};
+            }
+        }
+        $only_normal{$gene_name} = $fasta{$gene_name}[1];    #here are all sequences not only normal
+    }
+
+    #delete longest sequences from normal sequences
+    delete @only_normal{ keys %only_large };    #hash slice
+                                                #print Dumper(\%only_normal);
+
+    #print out large sequences one by one
+    my $index = 1;
+    foreach my $gene ( keys %only_large ) {
+        my $largeseq = path( $param_href->{out}, $param_href->{chunk_name} . '_large' . $index )->canonpath;
+        open( my $fh_large, ">", $largeseq ) or $log->logdie("Error: can't open large output file:$largeseq:$!");
+
+        say {$fh_large} ">$gene\n$only_large{$gene}[1]";
+        $log->debug( "File_large: ", path($largeseq)->basename );
+        $index++;
+        close $fh_large;
+    }
+
+    return \%only_normal, scalar @longest;
+}
+
+
+### INTERNAL UTILITY ###
+# Usage      : my $chunk_cnt =_print_normal_seq( { normal_seq => $only_normal_href,  %{$param_href} } );
+# Purpose    : prints normal sized sequences in chunks
+# Returns    : num of chunks printed
+# Parameters : 
+# Throws     : croaks if wrong number of parameters
+# Comments   : 
+# See Also   : 
+sub _print_normal_seq {
+    my $log = Log::Log4perl::get_logger("main");
+    $log->logcroak('_print_normal_seq() needs a $param_href') unless @_ == 1;
+    my ($param_href) = @_;
+    my %only_normal = %{ $param_href->{normal_seq} };
+
+    # print out all normal sequences
+    my $counter_normal = 0;    #counter for each sequence
+    my @bucket;                #array holding seqs for print
+    my $chunk = 0;             #counter for each chunk
+
+    # loop for all sequences
+    while ( my ( $name, $seq ) = each %only_normal ) {
+        $counter_normal++;     #say $counter_normal;
+
+        # push already formated sequences
+        push @bucket, ">$name\n$seq\n";
+
+        # for each full container equal to chunk_size
+        if ( $counter_normal % $param_href->{chunk_size} == 0) {
+
+            $chunk++;          #increment before so you don't need to change last append name
+
+            my $normal_seq = path( $param_href->{out}, $param_href->{chunk_name} . $chunk )->canonpath;
+            open( my $fh_normal, ">", $normal_seq ) or $log->logdie("Can't open normal output file $normal_seq:$!");
+            print {$fh_normal} @bucket;
+            $log->debug( "File: ", path($normal_seq)->basename, " printed with $param_href->{chunk_size} sequences");
+            @bucket = ();      #empty each bucket for new chunk
+            close $fh_normal;
+        }
+
+    }
+
+    # for remainder of sequences create new file (default) or append to last chunk
+    if ( scalar @bucket > 0 ) {
+
+        # different behaviour depending on append option
+        if ( $param_href->{append} ) {    #append to previous file
+            my $normal_seq = path( $param_href->{out}, $param_href->{chunk_name} . $chunk )->canonpath;
+            open( my $fh_normal, ">>", $normal_seq ) or die "Can't open apppended output file $normal_seq:$!\n";
+            print {$fh_normal} @bucket;
+            my $append_cnt = @bucket;
+            $log->debug( "File ", path($normal_seq)->basename, " appended $append_cnt sequences" );
+            @bucket = ();
+            close $fh_normal;
+        }
+
+        # default is to create new file and put sequences there
+        else {
+            $chunk++;
+            my $normal_seq = path( $param_href->{out}, $param_href->{chunk_name} . $chunk )->canonpath;
+            open( my $fh_normal, ">", $normal_seq ) or die "Can't open remainder output file $normal_seq:$!\n";
+            print {$fh_normal} @bucket;
+            my $remainder_cnt = @bucket;
+            $log->debug( 'File ', path($normal_seq)->basename, " printed with $remainder_cnt sequences" );
+            @bucket = ();
+            close $fh_normal;
+        }
+    }
+
+    return $chunk;
 }
 
 
 ### WORKING SUB ###
 # Usage      : sge_blast_combined();
-# Purpose    : writes SGE SCRIPTS for BLAST+ files write_chunks() generated
+# Purpose    : writes SGE SCRIPTS for BLAST+ files split_fasta() generated
 # Returns    : nothing
 # Parameters : ($param_href)
 # Throws     : croaks if wrong number of arguments
 # Comments   : writes SGE scripts to run BLAST+ on isabella
-# See Also   : write_chunks()
+# See Also   : split_fasta()
 sub sge_blast_combined {
     my $log = Log::Log4perl::get_logger("main");
     $log->logcroak( 'sge_blast_combined() needs a hash_ref' ) unless @_ == 1;
@@ -967,7 +1024,7 @@ PsiBlastHelper - It's modulino that splits fasta input file into number of chunk
 =head1 SYNOPSIS
 
     # test example
-    lib/PsiBlastHelper.pm --infile=t/data/dm_splicvar --out=t/data/dm_chunks/ --chunk_name=dm --chunk_num=140 --size 3000 --cpu 5 --cpu_l 5 --db_name=dbfull --db_path=/shared/msestak/db_full_plus --db_gz_name=dbfull_plus_format_new.tar.gz
+    lib/PsiBlastHelper.pm --infile=t/data/dm_splicvar --out=t/data/dm_chunks/ --chunk_name=dm --chunk_size=100 --fasta_size 10000 --cpu 500 --cpu_l 500 --db_name=dbfull --db_path=/shared/msestak/db_full_plus --db_gz_name=dbfull_plus_format_new.tar.gz
 
     # possible options for BLAST database
     --db_name=dbfull  --db_path=/shared/msestak/db_full_plus --db_gz_name=dbfull_plus_format_new.tar.gz

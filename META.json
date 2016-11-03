@@ -42,6 +42,7 @@
       },
       "runtime" : {
          "requires" : {
+            "Carp" : "0",
             "Config::Std" : "0",
             "Data::Dumper" : "0",
             "Exporter" : "0",

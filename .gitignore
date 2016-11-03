@@ -29,3 +29,7 @@ cover_db/
 MYMETA.*
 
 /PsiBlastHelper-*
+
+/lib/PsiBlastHelper.log
+/t/data/dm_chunks
+

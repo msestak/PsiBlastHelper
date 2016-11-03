@@ -7,6 +7,7 @@ on 'test' => sub {
 requires 'strict';
 requires 'warnings';
 requires 'Exporter';
+requires 'Carp';
 requires 'Data::Dumper';
 requires 'Path::Tiny';
 requires 'Getopt::Long';
