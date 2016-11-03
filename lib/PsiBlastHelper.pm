@@ -24,6 +24,7 @@ our @EXPORT_OK = qw{
   sge_blast_combined
   condor_blast_combined
   condor_blast_combined_sh
+  sge_psiblast_combined
 
 };
 
@@ -69,6 +70,7 @@ sub run {
         sge_blast_combined       => \&sge_blast_combined,
         condor_blast_combined    => \&condor_blast_combined,
         condor_blast_combined_sh => \&condor_blast_combined_sh,
+		sge_psiblast_combined    => \&sge_psiblast_combined,
 
     );
     foreach my $write_mode ( sort keys %subs ) {
@@ -1009,6 +1011,145 @@ HTCondor_NORMAL3
     return;
 }
 
+
+### WORKING SUB ###
+# Usage      : sge_psiblast_combined();
+# Purpose    : writes SGE SCRIPTS for PSI-BLAST+ files split_fasta() generated
+# Returns    : nothing
+# Parameters : ($param_href)
+# Throws     : croaks if wrong number of arguments
+# Comments   : writes SGE scripts to run PSI-BLAST+ on isabella
+# See Also   : split_fasta()
+sub sge_psiblast_combined {
+    my $log = Log::Log4perl::get_logger("main");
+    $log->logcroak( 'sge_psiblast_combined() needs a hash_ref' ) unless @_ == 1;
+    my ( $param_href ) = @_;
+
+    my $out        = $param_href->{out}        or $log->logcroak('no out specified on command line!');
+    my $chunk_name = $param_href->{chunk_name} or $log->logcroak('no chunk_name specified on command line!');
+    my $cpu        = $param_href->{cpu}        or $log->logcroak('no cpu specified on command line!');
+    my $cpu_l      = $param_href->{cpu_l}      or $log->logcroak('no cpu_l specified on command line!');
+	my $num_l      = $param_href->{num_l}      // $log->logcroak('no num_l sent to sub!');   #can be 0 so checks for defindness
+	my $num_n      = $param_href->{num_n}      // $log->logcroak('no num_n sent to sub!');
+    my $db_path    = $param_href->{db_path}    or $log->logcroak('no db_path specified on command line!');
+    my $db_name    = $param_href->{db_name}    or $log->logcroak('no db_name specified on command line!');
+    my $app        = defined $param_href->{app} ? $param_href->{app} : 'psiblast';
+
+	#build a queue for large seq
+	my @large = 1 ..$num_l;
+	my $script_num = 0;
+	while (my @next_large = splice @large, 0, $cpu_l) {
+		#say "@next_large";
+		$script_num++;
+		my $real_cpu = @next_large;   #calculate real cpu usage
+
+		# generate input files
+		my $input_files_large;
+		foreach my $i (@next_large) {
+			$input_files_large .= "$ENV{HOME}/in/${chunk_name}_large$i ";
+		}
+
+        #construct script for SGE large sequences
+		my $sge_large = <<"SGE_LARGE";
+#!/bin/sh
+
+#\$ -N bl_${chunk_name}_lp$script_num
+#\$ -cwd
+#\$ -m abe
+#\$ -M msestak\@irb.hr
+#\$ -pe mpisingle $real_cpu
+#\$ -R y
+#\$ -l exclusive=1
+
+mkdir -p \$TMPDIR/db
+mkdir -p \$TMPDIR/out
+mkdir -p \$TMPDIR/in
+cp -uvR $db_path/* \$TMPDIR/db/
+cp -uvR $input_files_large \$TMPDIR/in
+SGE_LARGE
+
+		my $sge_large_script = path( $out, $chunk_name . "_sge_psiblast_large_plus_combined$script_num.submit" )->canonpath;
+    	open( my $sge_large_fh, ">", $sge_large_script ) or die "Can't open large output file $sge_large_script:$!\n";
+    	say {$sge_large_fh} $sge_large;
+
+		#print for all jobs
+		foreach my $i (@next_large) {
+			my $blast_cmd = qq{$app -db \$TMPDIR/db/$db_name -query \$TMPDIR/in/${chunk_name}_large$i -out \$TMPDIR/out/${chunk_name}_largeoutplus$i -evalue 1e-3 -outfmt 6 -seg yes -max_target_seqs 100000000 -num_iterations=4 -inclusion_ethresh=1e-3 &};
+			say {$sge_large_fh} $blast_cmd;
+		}
+
+		#print bash wait to wait on all background processes
+		say {$sge_large_fh} "\nwait\n";
+
+		#copy all back
+		foreach my $i (@next_large) {
+			my $cp_cmd = qq{cp --preserve=timestamps \$TMPDIR/out/${chunk_name}_largeoutplus$i $ENV{HOME}/out/};
+			say {$sge_large_fh} $cp_cmd;
+		}
+		
+		$log->info( "SGE large PSI-BLAST+ combined (jobs @next_large) script: $sge_large_script" );
+	}   #end while
+
+
+	#SECOND PART
+	#build a queue for large seq
+	my @normal = 1 ..$num_n;
+	my $script_num_n = 0;
+	while (my @next_normal = splice @normal, 0, $cpu) {
+		#say "@next_normal";
+		$script_num_n++;
+		my $real_cpu = @next_normal;
+
+		# generate input files
+		my $input_files_normal;
+		foreach my $i (@next_normal) {
+			$input_files_normal .= "$ENV{HOME}/in/${chunk_name}$i ";
+		}
+
+		#construct script for SGE normal sequences
+		my $sge_normal = <<"SGE_NORMAL";
+#!/bin/sh
+
+#\$ -N bl_${chunk_name}_p$script_num_n
+#\$ -cwd
+#\$ -m abe
+#\$ -M msestak\@irb.hr
+#\$ -pe mpisingle $real_cpu
+#\$ -R y
+#\$ -l exclusive=1
+
+mkdir -p \$TMPDIR/db
+mkdir -p \$TMPDIR/out
+mkdir -p \$TMPDIR/in
+cp -uvR $db_path/* \$TMPDIR/db/
+cp -uvR $input_files_normal \$TMPDIR/in
+SGE_NORMAL
+
+		my $sge_normal_script = path( $out, $chunk_name . "_sge_psiblast_normal_plus_combined$script_num_n.submit" )->canonpath;
+		open( my $sge_normal_fh, ">", $sge_normal_script ) or die "Can't open normal output file $sge_normal_script:$!\n";
+		say {$sge_normal_fh} $sge_normal;
+
+		#print all blastall processes as background
+		foreach my $i (@next_normal) {
+			my $blast_cmd = qq{$app -db \$TMPDIR/db/$db_name -query \$TMPDIR/in/${chunk_name}$i -out \$TMPDIR/out/${chunk_name}_outplus$i -evalue 1e-3 -outfmt 6 -seg yes -max_target_seqs 100000000 -num_iterations=4 -inclusion_ethresh=1e-3 &};
+			say {$sge_normal_fh} $blast_cmd;
+		}
+
+		#print bash wait to wait on all background processes
+		say {$sge_normal_fh} "\nwait\n";
+
+		#copy all back
+		foreach my $i (@next_normal) {
+			my $cp_cmd = qq{cp --preserve=timestamps \$TMPDIR/out/${chunk_name}_outplus$i $ENV{HOME}/out/};
+			say {$sge_normal_fh} $cp_cmd;
+		}
+
+		$log->info( "SGE normal PSI-BLAST+ combined (jobs @next_normal) script: $sge_normal_script" );
+
+	}   #end while
+
+    return;
+}
 
 
 
