@@ -1,5 +1,5 @@
 {
-   "abstract" : "It's new $module",
+   "abstract" : "It's modulino that splits fasta input file into number of chunks for BLAST, PSI-BLAST and HMMER to run them on cluster or grid",
    "author" : [
       "mocnii <msestak@irb.hr>"
    ],
@@ -42,7 +42,17 @@
       },
       "runtime" : {
          "requires" : {
-            "perl" : "5.008001"
+            "Config::Std" : "0",
+            "Data::Dumper" : "0",
+            "Exporter" : "0",
+            "File::Spec::Functions" : "0",
+            "Getopt::Long" : "0",
+            "Log::Log4perl" : "0",
+            "Path::Tiny" : "0",
+            "Pod::Usage" : "0",
+            "perl" : "5.010",
+            "strict" : "0",
+            "warnings" : "0"
          }
       },
       "test" : {
