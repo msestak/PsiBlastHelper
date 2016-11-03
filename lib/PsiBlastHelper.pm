@@ -25,6 +25,8 @@ our @EXPORT_OK = qw{
   condor_blast_combined
   condor_blast_combined_sh
   sge_psiblast_combined
+  condor_psiblast_combined
+  condor_psiblast_combined_sh
 
 };
 
@@ -70,7 +72,9 @@ sub run {
         sge_blast_combined       => \&sge_blast_combined,
         condor_blast_combined    => \&condor_blast_combined,
         condor_blast_combined_sh => \&condor_blast_combined_sh,
-		sge_psiblast_combined    => \&sge_psiblast_combined,
+        sge_psiblast_combined       => \&sge_psiblast_combined,
+        condor_psiblast_combined    => \&condor_psiblast_combined,
+        condor_psiblast_combined_sh => \&condor_psiblast_combined_sh,
 
     );
     foreach my $write_mode ( sort keys %subs ) {
@@ -1053,7 +1057,7 @@ sub sge_psiblast_combined {
 		my $sge_large = <<"SGE_LARGE";
 #!/bin/sh
 
-#\$ -N bl_${chunk_name}_lp$script_num
+#\$ -N psibl_${chunk_name}_lp$script_num
 #\$ -cwd
 #\$ -m abe
 #\$ -M msestak\@irb.hr
@@ -1074,7 +1078,7 @@ SGE_LARGE
 
 		#print for all jobs
 		foreach my $i (@next_large) {
-			my $blast_cmd = qq{$app -db \$TMPDIR/db/$db_name -query \$TMPDIR/in/${chunk_name}_large$i -out \$TMPDIR/out/${chunk_name}_largeoutplus$i -evalue 1e-3 -outfmt 6 -seg yes -max_target_seqs 100000000 -num_iterations=4 -inclusion_ethresh=1e-3 &};
+			my $blast_cmd = qq{$app -db \$TMPDIR/db/$db_name -query \$TMPDIR/in/${chunk_name}_large$i -out \$TMPDIR/out/${chunk_name}_largepsiout$i -evalue 1e-3 -outfmt 6 -seg yes -max_target_seqs 100000000 -num_iterations=4 -inclusion_ethresh=1e-3 &};
 			say {$sge_large_fh} $blast_cmd;
 		}
 
@@ -1083,7 +1087,7 @@ SGE_LARGE
 
 		#copy all back
 		foreach my $i (@next_large) {
-			my $cp_cmd = qq{cp --preserve=timestamps \$TMPDIR/out/${chunk_name}_largeoutplus$i $ENV{HOME}/out/};
+			my $cp_cmd = qq{cp --preserve=timestamps \$TMPDIR/out/${chunk_name}_largepsiout$i $ENV{HOME}/out/};
 			say {$sge_large_fh} $cp_cmd;
 		}
 		
@@ -1131,7 +1135,7 @@ SGE_NORMAL
 
 		#print all blastall processes as background
 		foreach my $i (@next_normal) {
-			my $blast_cmd = qq{$app -db \$TMPDIR/db/$db_name -query \$TMPDIR/in/${chunk_name}$i -out \$TMPDIR/out/${chunk_name}_outplus$i -evalue 1e-3 -outfmt 6 -seg yes -max_target_seqs 100000000 -num_iterations=4 -inclusion_ethresh=1e-3 &};
+			my $blast_cmd = qq{$app -db \$TMPDIR/db/$db_name -query \$TMPDIR/in/${chunk_name}$i -out \$TMPDIR/out/${chunk_name}_psiout$i -evalue 1e-3 -outfmt 6 -seg yes -max_target_seqs 100000000 -num_iterations=4 -inclusion_ethresh=1e-3 &};
 			say {$sge_normal_fh} $blast_cmd;
 		}
 
@@ -1140,7 +1144,7 @@ SGE_NORMAL
 
 		#copy all back
 		foreach my $i (@next_normal) {
-			my $cp_cmd = qq{cp --preserve=timestamps \$TMPDIR/out/${chunk_name}_outplus$i $ENV{HOME}/out/};
+			my $cp_cmd = qq{cp --preserve=timestamps \$TMPDIR/out/${chunk_name}_psiout$i $ENV{HOME}/out/};
 			say {$sge_normal_fh} $cp_cmd;
 		}
 
@@ -1152,6 +1156,319 @@ SGE_NORMAL
 }
 
 
+### CLASS METHOD/INSTANCE METHOD/INTERFACE SUB/INTERNAL UTILITY ###
+# Usage      : condor_psiblast_combined( $param_href )
+# Purpose    : creates HTCondor PSI_BLAST+ submit scripts
+# Returns    : nothing
+# Parameters : $param_href
+# Throws     : croaks if wrong number of parameters
+# Comments   : creates 2 scripts that starts HTCondor
+# See Also   : condor_psiblast_combined_sh() which creates run scripts
+sub condor_psiblast_combined {
+    my $log = Log::Log4perl::get_logger("main");
+    $log->logcroak('condor_psiblast_combined() needs a $param_href') unless @_ == 1;
+    my ($param_href) = @_;
+
+    my $out        = $param_href->{out}        or $log->logcroak('no out specified on command line!');
+    my $chunk_name = $param_href->{chunk_name} or $log->logcroak('no chunk_name specified on command line!');
+    my $cpu        = $param_href->{cpu}        or $log->logcroak('no cpu specified on command line!');
+    my $cpu_l      = $param_href->{cpu_l}      or $log->logcroak('no cpu_l specified on command line!');
+    my $num_l = $param_href->{num_l} // $log->logcroak('no num_l sent to sub!');    #can be 0 so checks for defindness
+    my $num_n = $param_href->{num_n} // $log->logcroak('no num_n sent to sub!');
+    my $app = defined $param_href->{app} ? $param_href->{app} : 'psiblast';
+
+    #build a queue for large seq
+    my @large      = 1 .. $num_l;
+    my $script_num = 0;
+    while ( my @next_large = splice @large, 0, $cpu_l ) {
+
+        #say "@next_large";
+        $script_num++;
+        my $real_cpu = @next_large;                                                 #calculate real cpu usage
+
+        #construct script for HTCondor large sequences
+        my $condor_large = <<"HTCondor_LARGE";
+Executable=psibl_${chunk_name}_lp$script_num.sh
+#Arguments=
+TransferExecutable = True
+Notification       = Complete
+notify_user        = msestak\@irb.hr
+universe           = grid
+grid_resource      = gt2 ce.srce.cro-ngi.hr/jobmanager-sge
+
+GlobusRSL   = (jobType=single)(count=$real_cpu)(exclusive=1)
+Environment = "PE_MODE=single"
+
+should_transfer_files = yes
+WhenToTransferOutput  = ON_EXIT
+transfer_input_files  = in.tgz, $app
+HTCondor_LARGE
+
+        my $condor_large_script
+          = path( $out, $chunk_name . "_condor_psiblast_large_plus_combined$script_num.submit" )->canonpath;
+        open( my $condor_large_fh, ">", $condor_large_script )
+          or die "Can't open large output file $condor_large_script:$!\n";
+        say {$condor_large_fh} $condor_large;
+
+        #print for all jobs
+        my @returning_output;
+        foreach my $i (@next_large) {
+            my $blast_output = "${chunk_name}_largepsiout$i";
+            push @returning_output, $blast_output;
+        }
+        say {$condor_large_fh} "transfer_output_files = ", join ", ", @returning_output;
+
+        my $condor_large2 = <<"HTCondor_LARGE2";
+
+Log    = log/bl_${chunk_name}_lp$script_num.\$(cluster).log
+Output = log/bl_${chunk_name}_lp$script_num.\$(cluster).out
+Error  = log/bl_${chunk_name}_lp$script_num.\$(cluster).err
+
+queue
+
+HTCondor_LARGE2
+
+        say {$condor_large_fh} $condor_large2;
+
+        $log->info("HTCondor large PSI-BLAST+ combined (jobs @next_large) script: $condor_large_script");
+    }    #end while for each script
+
+    #SECOND PART
+    #build a queue for normal seq
+    my @normal       = 1 .. $num_n;
+    my $script_num_n = 0;
+    while ( my @next_normal = splice @normal, 0, $cpu ) {
+
+        #say "@next_normal";
+        $script_num_n++;
+        my $real_cpu = @next_normal;
+
+        #construct script for HTCondor normal sequences
+        my $condor_normal = <<"HTCondor_NORMAL";
+Executable=psibl_${chunk_name}_p$script_num_n.sh
+#Arguments=
+TransferExecutable = True
+Notification       = Complete
+notify_user        = msestak\@irb.hr
+universe           = grid
+grid_resource      = gt2 ce.srce.cro-ngi.hr/jobmanager-sge
+
+GlobusRSL   = (jobType=single)(count=$real_cpu)(exclusive=1)
+Environment = "PE_MODE=single"
+
+should_transfer_files = yes
+WhenToTransferOutput  = ON_EXIT
+transfer_input_files  = in.tgz, $app
+HTCondor_NORMAL
+
+        my $condor_normal_script
+          = path( $out, $chunk_name . "_condor_psiblast_normal_plus_combined$script_num_n.submit" )->canonpath;
+        open( my $condor_normal_fh, ">", $condor_normal_script )
+          or die "Can't open normal output file $condor_normal_script:$!\n";
+        say {$condor_normal_fh} $condor_normal;
+
+        #print for all jobs
+        my @returning_output_n;
+        foreach my $i (@next_normal) {
+            my $blast_output = "${chunk_name}_psiout$i";
+            push @returning_output_n, $blast_output;
+        }
+        say {$condor_normal_fh} "transfer_output_files = ", join ", ", @returning_output_n;
+
+        my $condor_normal2 = <<"HTCondor_NORMAL2";
+
+Log    = log/bl_${chunk_name}_p$script_num.\$(cluster).log
+Output = log/bl_${chunk_name}_p$script_num.\$(cluster).out
+Error  = log/bl_${chunk_name}_p$script_num.\$(cluster).err
+
+queue
+
+HTCondor_NORMAL2
+
+        say {$condor_normal_fh} $condor_normal2;
+
+        $log->info("HTCondor normal PSI-BLAST+ combined (jobs @next_normal) script: $condor_normal_script");
+    }    #end while for each script
+
+    return;
+}
+
+
+### CLASS METHOD/INSTANCE METHOD/INTERFACE SUB/INTERNAL UTILITY ###
+# Usage      : condor_psiblast_combined_sh( $param_href )
+# Purpose    : creates HTCondor bash run scripts
+# Returns    : nothing
+# Parameters : $param_href
+# Throws     : croaks if wrong number of parameters
+# Comments   : creates 2 scripts for each job with 4 BLAST jobs inside
+#            : uberftp ce.srce.cro-ngi.hr to transfer db.tgz into $HOME/newdata/
+# See Also   : condor_psiblast_combined() which creates submit scripts
+sub condor_psiblast_combined_sh {
+    my $log = Log::Log4perl::get_logger("main");
+    $log->logcroak('condor_psiblast_combined_sh() needs a $param_href') unless @_ == 1;
+    my ($param_href) = @_;
+
+    my $out        = $param_href->{out}        or $log->logcroak('no out specified on command line!');
+    my $chunk_name = $param_href->{chunk_name} or $log->logcroak('no chunk_name specified on command line!');
+    my $cpu        = $param_href->{cpu}        or $log->logcroak('no cpu specified on command line!');
+    my $cpu_l      = $param_href->{cpu_l}      or $log->logcroak('no cpu_l specified on command line!');
+    my $num_l = $param_href->{num_l} // $log->logcroak('no num_l sent to sub!');    #can be 0 so checks for defindness
+    my $num_n = $param_href->{num_n} // $log->logcroak('no num_n sent to sub!');
+    my $db_name    = $param_href->{db_name}    or $log->logcroak('no db_name specified on command line!');
+    my $db_gz_name = $param_href->{db_gz_name} or $log->logcroak('no db_gz_name specified on command line!');
+    my $app = defined $param_href->{app} ? $param_href->{app} : 'psiblast';
+
+    #build a queue for large seq
+    my @large      = 1 .. $num_l;
+    my $script_num = 0;
+    while ( my @next_large = splice @large, 0, $cpu_l ) {
+
+        #say "@next_large";
+        $script_num++;
+        my $real_cpu = @next_large;    #calculate real cpu usage
+
+        #construct script for HTCondor large sequences
+        my $condor_large = <<"HTCondor_LARGE";
+#!/bin/bash
+
+WORKDIR=\$PWD
+echo "SCRATCH_DIRECTORY (workdir) is:\$WORKDIR"
+HTCondor_LARGE
+
+        #name of the script here
+        my $condor_large_script = path( $out, "psibl_${chunk_name}_lp$script_num.sh" )->canonpath;
+        open( my $condor_large_fh, ">", $condor_large_script )
+          or die "Can't open large output file $condor_large_script:$!\n";
+        say {$condor_large_fh} $condor_large;
+
+        # generate touch (output files)
+        my @returning_output;
+        foreach my $i (@next_large) {
+            my $blast_output = "${chunk_name}_largepsiout$i";
+            push @returning_output, $blast_output;
+        }
+        say {$condor_large_fh} "touch @returning_output";
+
+        #second part of script
+        my $condor_large2 = <<"HTCondor_LARGE2";
+chmod +x psiblast
+
+sleep 1
+echo "{\$(pwd)" && echo "\$(ls -lha)}"
+
+cd \$TMPDIR
+echo "TMPDIR is:\$TMPDIR"
+cp \$WORKDIR/* \$TMPDIR
+tar -zxf in.tgz
+tar -zxf \$HOME/newdata/$db_gz_name
+HTCondor_LARGE2
+
+        say {$condor_large_fh} $condor_large2;
+
+        # print PSI-BLAST+ command for all jobs
+        foreach my $i (@next_large) {
+            my $blast_cmd
+              = qq{\$TMPDIR/$app -db \$TMPDIR/$db_name -query \$TMPDIR/${chunk_name}_large$i -out \$TMPDIR/${chunk_name}_largepsiout$i -evalue 1e-3 -outfmt 6 -seg yes -max_target_seqs 100000000 -num_iterations=4 -inclusion_ethresh=1e-3 &};
+            say {$condor_large_fh} $blast_cmd;
+        }
+
+        #third part of script
+        my $condor_large3 = <<"HTCondor_LARGE3";
+
+sleep 1
+echo "\$(pgrep -fl psiblast)"
+echo "{\$(pwd)" && echo "\$(ls -lha)}"
+
+#echo "\$(env)"
+
+wait
+HTCondor_LARGE3
+
+        say {$condor_large_fh} $condor_large3;
+
+        # copy to workdir (so HTCondor can return them back)
+        say {$condor_large_fh} "cp @returning_output \$WORKDIR";
+
+        $log->info("HTCondor large PSI-BLAST+ shell script: $condor_large_script");
+    }    #end while for each script
+
+    #SECOND PART
+    #build a queue for normal seq
+    my @normal       = 1 .. $num_n;
+    my $script_num_n = 0;
+    while ( my @next_normal = splice @normal, 0, $cpu ) {
+
+        #say "@next_normal";
+        $script_num_n++;
+        my $real_cpu = @next_normal;
+
+        #construct script for HTCondor normal sequences
+        my $condor_normal = <<"HTCondor_NORMAL";
+#!/bin/bash
+
+WORKDIR=\$PWD
+echo "SCRATCH_DIRECTORY (workdir) is:\$WORKDIR"
+HTCondor_NORMAL
+
+        # name of the script here
+        my $condor_normal_script = path( $out, "psibl_${chunk_name}_p$script_num_n.sh" )->canonpath;
+        open( my $condor_normal_fh, ">", $condor_normal_script )
+          or die "Can't open normal output file $condor_normal_script:$!\n";
+        say {$condor_normal_fh} $condor_normal;
+
+        # print touch for all output files (just in case there is error)
+        my @returning_output_n;
+        foreach my $i (@next_normal) {
+            my $blast_output = "${chunk_name}_psiout$i";
+            push @returning_output_n, $blast_output;
+        }
+        say {$condor_normal_fh} "touch @returning_output_n";
+
+        # second part of script
+        my $condor_normal2 = <<"HTCondor_NORMAL2";
+chmod +x psiblast
+
+sleep 1
+echo "{\$(pwd)" && echo "\$(ls -lha)}"
+
+cd \$TMPDIR
+echo "TMPDIR is:\$TMPDIR"
+cp \$WORKDIR/* \$TMPDIR
+tar -zxf in.tgz
+tar -zxf \$HOME/newdata/$db_gz_name
+HTCondor_NORMAL2
+
+        say {$condor_normal_fh} $condor_normal2;
+
+        # print PSI-BLAST+ jobs
+        foreach my $i (@next_normal) {
+            my $blast_cmd
+              = qq{\$TMPDIR/psiblast -db \$TMPDIR/$db_name -query \$TMPDIR/${chunk_name}$i -out \$TMPDIR/${chunk_name}_psiout$i -evalue 1e-3 -outfmt 6 -seg yes -max_target_seqs 100000000 -num_iterations=4 -inclusion_ethresh=1e-3 &};
+            say {$condor_normal_fh} $blast_cmd;
+        }
+
+        # third part of script
+        my $condor_normal3 = <<"HTCondor_NORMAL3";
+
+sleep 1
+echo "\$(pgrep -fl psiblast)"
+echo "{\$(pwd)" && echo "\$(ls -lha)}"
+
+#echo "\$(env)"
+
+wait
+HTCondor_NORMAL3
+
+        say {$condor_normal_fh} $condor_normal3;
+
+        # copy output files back to workdir for HTCondor to return them back
+        say {$condor_normal_fh} "cp @returning_output_n \$WORKDIR";
+
+        $log->info("HTCondor normal PSI-BLAST+ shell script: $condor_normal_script");
+    }    #end while for each script
+
+    return;
+}
 
 1;
 __END__
@@ -1185,8 +1502,8 @@ All paths are hardcoded to ISABELLA cluster at tannat.srce.hr and CRO-NGI grid.
 
 For help write:
 
-	perl FastaSplit.pm -h
-	perl FastaSplit.pm -m
+    perl FastaSplit.pm -h
+    perl FastaSplit.pm -m
 
 =head1 LICENSE
 
