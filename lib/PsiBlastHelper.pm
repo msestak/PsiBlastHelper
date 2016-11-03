@@ -20,9 +20,9 @@ our @EXPORT_OK = qw{
   init_logging
   get_parameters_from_cmd
   write_chunks
-  sge_plus_combined
-  condor_plus_combined
-  condor_plus_combined_sh
+  sge_blast_combined
+  condor_blast_combined
+  condor_blast_combined_sh
 
 };
 
@@ -65,9 +65,9 @@ sub run {
 
     # call write modes (different subs that print different jobs)
     my %subs = (
-        sge_plus_combined       => \&sge_plus_combined,
-        condor_plus_combined    => \&condor_plus_combined,
-        condor_plus_combined_sh => \&condor_plus_combined_sh,
+        sge_blast_combined       => \&sge_blast_combined,
+        condor_blast_combined    => \&condor_blast_combined,
+        condor_blast_combined_sh => \&condor_blast_combined_sh,
 
     );
     foreach my $write_mode ( sort keys %subs ) {
@@ -78,6 +78,7 @@ sub run {
 
     return;
 }
+
 
 ### INTERNAL UTILITY ###
 # Usage      : my ($param_href) = get_parameters_from_cmd();
@@ -227,6 +228,7 @@ sub get_parameters_from_cmd {
     return ( \%all_opts );
 }
 
+
 ### INTERNAL UTILITY ###
 # Usage      : init_logging();
 # Purpose    : enables Log::Log4perl log() to Screen and File
@@ -316,6 +318,643 @@ sub init_logging {
 }
 
 
+### WORKING SUB ###
+# Usage      : write_chunks(  );
+# Purpose    : splits fasta file into chunks
+# Returns    : nothing
+# Parameters : ( all from command line )
+# Throws     : croaks if wrong number of arguments
+# Comments   : splits fasta, writes chunks, longest sequences
+# See Also   :
+sub write_chunks {
+    my $log = Log::Log4perl::get_logger("main");
+    $log->logcroak( 'write_chunks() needs a hash_ref' ) unless @_ == 1;
+    my ($param_href) = @_;
+
+    my $infile     = $param_href->{infile}      or $log->logcroak('no $infile specified on command line!');
+    my $out        = $param_href->{out}         or $log->logcroak('no $out specified on command line!');
+    my $chunk_num  = $param_href->{chunk_num}   or $log->logcroak('no $chunk_num specified on command line!');
+    my $chunk_name = $param_href->{chunk_name}  or $log->logcroak('no chunk_name specified on command line!');
+    my $top        = $param_href->{top};
+    my $size       = $param_href->{size};
+    my $append     = $param_href->{append};
+
+	#clean $out directory before use
+	if ( -d $out ) {
+            path($out)->remove_tree and $log->warn(qq|Action: dir $out removed and cleaned|);
+        }
+    path( $out )->mkpath and $log->trace(qq|Action: dir $out created empty|);
+
+    #define number of chunks and chunk name
+    open( my $fh_instream, "<", $param_href->{infile} ) or $log->logdie( "error opening input file $param_href->{infile}:$!" );
+    my $chunksize;
+    my $countseq = 0;
+    my $remainder;
+    my %fasta;    #FORMAT:header => [length, fasta_seq]
+    my $header;
+
+    #start working code
+    {
+        local $/ = '>';
+
+        #calculate size of chunks and remaining sequences
+        while ( my $line = <$fh_instream> ) {
+            chomp $line;
+
+            if ($line =~ m{\A([^\v]+)\v    #header of seq till first vertical space
+                (.+)\z                     #fasta_seq
+                }xms
+              )
+            {
+                $countseq++;
+                $header = $1;
+                my $fasta_seq = $2;
+				$fasta_seq =~ s/\R//g;
+				$fasta_seq = uc $fasta_seq;
+				$fasta_seq =~ tr/A-Z*//dc;
+                my $fasta_len = length $fasta_seq;
+
+                #add to complex hash
+                $fasta{$header} = [ $fasta_len, $fasta_seq ];
+            }
+        }
+        close $fh_instream;
+
+        #calculate chunksize and remainder
+        $log->info( 'Num of seq: ',    $countseq );;
+        $log->info( 'Num of chunks: ', $param_href->{chunk_num} );
+        $chunksize = int( $countseq / $param_href->{chunk_num} );
+        $log->info( 'Num of seq in chunk: ', $chunksize );
+        $remainder = $countseq % $param_href->{chunk_num};
+        $log->info( 'Num of seq left without chunk: ', $remainder );
+
+   #find the longest sequences
+   #get the values out from aref [seq_len, fasta], pull first value from array_ref with map, sort numerically descending
+   #print Dumper(\%fasta);
+        my @all = sort { $b <=> $a } map { $_->[0] } values %fasta;
+
+        #print all only for small inputs
+        say "All seq lengths: @all" if scalar @all < 10;
+
+        #longest seqs depends on top or size
+        my @longest;
+        if ( $top and $size ) {
+            $log->logdie( "Error: choose either -t or -s option, not both");
+        }
+        elsif ($top) {
+            @longest = @all[ 0 .. $top - 1 ];   #sorted from longest so this works
+            $log->warn( "Top $top:@longest");
+        }
+        elsif ($size) {
+            @longest = grep { $_ > $size } @all;
+            $log->warn("Larger than $size {", scalar @longest, " seq}: @longest");
+        }
+        else {
+            $log->logdie( "Error: choose either -t or -s option" );
+        }
+
+        #extract longest sequences
+        my %only_large;
+        my %only_normal;
+        while ( my ( $key, $value ) = each %fasta ) {
+            foreach my $num (@longest) {
+                if ( $num == $fasta{$key}[0] ) {
+
+                    #say "veli: >$key\t$fasta{$key}[0]\t$fasta{$key}[1]";
+                    $only_large{$key} = $fasta{$key};
+                }
+            }
+            $only_normal{$key} = $fasta{$key}[1];    #here are all sequences not only normal
+        }
+
+        #print Dumper(\%only_large);
+        #print Dumper(\%only_normal);
+
+        #delete longest sequences from normal sequences
+        delete @only_normal{ keys %only_large };    #hash slice
+                                                    #print Dumper(\%only_normal);
+
+        #print out large sequences one by one
+        my $index = 1;
+        foreach my $gene ( keys %only_large ) {
+            my $largeseq = path( $out, $chunk_name . '_large' . $index )->canonpath;
+            open( my $fh_large, ">", $largeseq ) or $log->logdie("Error: can't open large output file:$largeseq:$!");
+
+            #say "$index>$gene\n$only_large{$gene}[1]";
+            say {$fh_large} ">$gene\n$only_large{$gene}[1]";
+            $log->debug("File_large: ", path($largeseq)->basename);
+            $index++;
+			close $fh_large;
+        }
+
+        #print out all normal sequences
+        my $counter_normal = 0;    #counter for each sequence
+        my @bucket;                #array holding seqs for print
+        my $chunk = 0;             #counter for each chunk
+
+        #loop for all sequences
+        while ( my ( $name, $seq ) = each %only_normal ) {
+            $counter_normal++;     #say $counter_normal;
+
+            #push already formated sequences
+            push @bucket, ">$name\n$seq\n";
+
+            #say "Before: @bucket";
+
+            #for each full container equal to chunksize
+            if ( $counter_normal % $chunksize == 0 ) {
+
+                #say "After: ", @bucket;
+                $chunk++;    #increment before so you don't need to change last append name
+
+                my $normal_seq = path( $out, $chunk_name . $chunk )->canonpath;
+                open( my $fh_normal, ">", $normal_seq ) or $log->logdie("Can't open normal output file $normal_seq:$!");
+                print {$fh_normal} @bucket;
+                $log->debug("File: ", path($normal_seq)->basename);
+                @bucket = ();    #empty each bucket for new chunk
+                close $fh_normal;
+            }
+
+            #for remainder of sequences append to last file (add number of long sequences)
+            elsif ( $counter_normal == $chunksize * $chunk_num + $remainder - scalar @longest ) {
+
+                #print "Last: ", @bucket;
+                #different behaviour depending on append option
+                if ($append) {    #append to previous file
+                    my $normal_seq = path( $out, $chunk_name . $chunk )->canonpath;
+                    open( my $fh_normal, ">>", $normal_seq ) or die "Can't open apppended output file $normal_seq:$!\n";
+                    print {$fh_normal} @bucket;
+					my $append_cnt = @bucket;
+                    $log->debug("File ", path($normal_seq)->basename, " appended $append_cnt sequences");
+                    @bucket = ();
+                    close $fh_normal;
+                }
+                else {            #default is to create new file and put there
+                    $chunk++;
+                    my $normal_seq = path( $out, $chunk_name . $chunk )->canonpath;
+                    open( my $fh_normal, ">", $normal_seq ) or die "Can't open remainder output file $normal_seq:$!\n";
+                    print {$fh_normal} @bucket;
+                    $log->debug('File ', path($normal_seq)->basename, ' remainder');
+                    @bucket = ();
+                    close $fh_normal;
+                }
+            }
+        }
+        $log->trace('Returning num of longest: ', scalar @longest, ' and num of chunks: ', $chunk);
+        return ( scalar @longest, $chunk );
+    }
+}
+
+
+### WORKING SUB ###
+# Usage      : sge_blast_combined();
+# Purpose    : writes SGE SCRIPTS for BLAST+ files write_chunks() generated
+# Returns    : nothing
+# Parameters : ($param_href)
+# Throws     : croaks if wrong number of arguments
+# Comments   : writes SGE scripts to run BLAST+ on isabella
+# See Also   : write_chunks()
+sub sge_blast_combined {
+    my $log = Log::Log4perl::get_logger("main");
+    $log->logcroak( 'sge_blast_combined() needs a hash_ref' ) unless @_ == 1;
+    my ( $param_href ) = @_;
+
+    my $out        = $param_href->{out}        or $log->logcroak('no out specified on command line!');
+    my $chunk_name = $param_href->{chunk_name} or $log->logcroak('no chunk_name specified on command line!');
+    my $cpu        = $param_href->{cpu}        or $log->logcroak('no cpu specified on command line!');
+    my $cpu_l      = $param_href->{cpu_l}      or $log->logcroak('no cpu_l specified on command line!');
+	my $num_l      = $param_href->{num_l}      // $log->logcroak('no num_l sent to sub!');   #can be 0 so checks for defindness
+	my $num_n      = $param_href->{num_n}      // $log->logcroak('no num_n sent to sub!');
+    my $db_path    = $param_href->{db_path}    or $log->logcroak('no db_path specified on command line!');
+    my $db_name    = $param_href->{db_name}    or $log->logcroak('no db_name specified on command line!');
+    my $app        = defined $param_href->{app} ? $param_href->{app} : 'blastp';
+
+	#build a queue for large seq
+	my @large = 1 ..$num_l;
+	my $script_num = 0;
+	while (my @next_large = splice @large, 0, $cpu_l) {
+		#say "@next_large";
+		$script_num++;
+		my $real_cpu = @next_large;   #calculate real cpu usage
+
+		# generate input files
+		my $input_files_large;
+		foreach my $i (@next_large) {
+			$input_files_large .= "$ENV{HOME}/in/${chunk_name}_large$i ";
+		}
+
+        #construct script for SGE large sequences
+		my $sge_large = <<"SGE_LARGE";
+#!/bin/sh
+
+#\$ -N bl_${chunk_name}_lp$script_num
+#\$ -cwd
+#\$ -m abe
+#\$ -M msestak\@irb.hr
+#\$ -pe mpisingle $real_cpu
+#\$ -R y
+#\$ -l exclusive=1
+
+mkdir -p \$TMPDIR/db
+mkdir -p \$TMPDIR/out
+mkdir -p \$TMPDIR/in
+cp -uvR $db_path/* \$TMPDIR/db/
+cp -uvR $input_files_large \$TMPDIR/in
+SGE_LARGE
+
+		my $sge_large_script = path( $out, $chunk_name . "_sge_large_plus_combined$script_num.submit" )->canonpath;
+    	open( my $sge_large_fh, ">", $sge_large_script ) or die "Can't open large output file $sge_large_script:$!\n";
+    	say {$sge_large_fh} $sge_large;
+
+		#print for all jobs
+		foreach my $i (@next_large) {
+			my $blast_cmd = qq{$app -db \$TMPDIR/db/$db_name -query \$TMPDIR/in/${chunk_name}_large$i -out \$TMPDIR/out/${chunk_name}_largeoutplus$i -evalue 1e-3 -outfmt 6 -seg yes -max_target_seqs 100000000 &};
+			say {$sge_large_fh} $blast_cmd;
+		}
+
+		#print bash wait to wait on all background processes
+		say {$sge_large_fh} "\nwait\n";
+
+		#copy all back
+		foreach my $i (@next_large) {
+			my $cp_cmd = qq{cp --preserve=timestamps \$TMPDIR/out/${chunk_name}_largeoutplus$i $ENV{HOME}/out/};
+			say {$sge_large_fh} $cp_cmd;
+		}
+		
+		$log->info( "SGE large BLAST+ combined (jobs @next_large) script: $sge_large_script" );
+	}   #end while
+
+
+	#SECOND PART
+	#build a queue for large seq
+	my @normal = 1 ..$num_n;
+	my $script_num_n = 0;
+	while (my @next_normal = splice @normal, 0, $cpu) {
+		#say "@next_normal";
+		$script_num_n++;
+		my $real_cpu = @next_normal;
+
+		# generate input files
+		my $input_files_normal;
+		foreach my $i (@next_normal) {
+			$input_files_normal .= "$ENV{HOME}/in/${chunk_name}$i ";
+		}
+
+		#construct script for SGE normal sequences
+		my $sge_normal = <<"SGE_NORMAL";
+#!/bin/sh
+
+#\$ -N bl_${chunk_name}_p$script_num_n
+#\$ -cwd
+#\$ -m abe
+#\$ -M msestak\@irb.hr
+#\$ -pe mpisingle $real_cpu
+#\$ -R y
+#\$ -l exclusive=1
+
+mkdir -p \$TMPDIR/db
+mkdir -p \$TMPDIR/out
+mkdir -p \$TMPDIR/in
+cp -uvR $db_path/* \$TMPDIR/db/
+cp -uvR $input_files_normal \$TMPDIR/in
+SGE_NORMAL
+
+		my $sge_normal_script = path( $out, $chunk_name . "_sge_normal_plus_combined$script_num_n.submit" )->canonpath;
+		open( my $sge_normal_fh, ">", $sge_normal_script ) or die "Can't open normal output file $sge_normal_script:$!\n";
+		say {$sge_normal_fh} $sge_normal;
+
+		#print all blastall processes as background
+		foreach my $i (@next_normal) {
+			my $blast_cmd = qq{$app -db \$TMPDIR/db/$db_name -query \$TMPDIR/in/${chunk_name}$i -out \$TMPDIR/out/${chunk_name}_outplus$i -evalue 1e-3 -outfmt 6 -seg yes -max_target_seqs 100000000 &};
+			say {$sge_normal_fh} $blast_cmd;
+		}
+
+		#print bash wait to wait on all background processes
+		say {$sge_normal_fh} "\nwait\n";
+
+		#copy all back
+		foreach my $i (@next_normal) {
+			my $cp_cmd = qq{cp --preserve=timestamps \$TMPDIR/out/${chunk_name}_outplus$i $ENV{HOME}/out/};
+			say {$sge_normal_fh} $cp_cmd;
+		}
+
+		$log->info( "SGE normal BLAST+ combined (jobs @next_normal) script: $sge_normal_script" );
+
+	}   #end while
+
+    return;
+}
+
+
+### CLASS METHOD/INSTANCE METHOD/INTERFACE SUB/INTERNAL UTILITY ###
+# Usage      : condor_blast_combined( $param_href )
+# Purpose    : creates HTCondor submit scripts
+# Returns    : nothing
+# Parameters : $param_href
+# Throws     : croaks if wrong number of parameters
+# Comments   : creates 2 scripts that starts HTCondor
+# See Also   : condor_blast_combined_sh() which creates run scripts
+sub condor_blast_combined {
+    my $log = Log::Log4perl::get_logger("main");
+    $log->logcroak('condor_blast_combined() needs a $param_href') unless @_ == 1;
+    my ($param_href) = @_;
+
+    my $out        = $param_href->{out}        or $log->logcroak('no out specified on command line!');
+    my $chunk_name = $param_href->{chunk_name} or $log->logcroak('no chunk_name specified on command line!');
+    my $cpu        = $param_href->{cpu}        or $log->logcroak('no cpu specified on command line!');
+    my $cpu_l      = $param_href->{cpu_l}      or $log->logcroak('no cpu_l specified on command line!');
+	my $num_l      = $param_href->{num_l}      // $log->logcroak('no num_l sent to sub!');   #can be 0 so checks for defindness
+	my $num_n      = $param_href->{num_n}      // $log->logcroak('no num_n sent to sub!');
+    my $app        = defined $param_href->{app} ? $param_href->{app} : 'blastp';
+
+	#build a queue for large seq
+	my @large = 1 ..$num_l;
+	my $script_num = 0;
+	while (my @next_large = splice @large, 0, $cpu_l) {
+		#say "@next_large";
+		$script_num++;
+		my $real_cpu = @next_large;   #calculate real cpu usage
+
+        #construct script for HTCondor large sequences
+		my $condor_large = <<"HTCondor_LARGE";
+Executable=bl_${chunk_name}_lp$script_num.sh
+#Arguments=
+TransferExecutable = True
+Notification       = Complete
+notify_user        = msestak\@irb.hr
+universe           = grid
+grid_resource      = gt2 ce.srce.cro-ngi.hr/jobmanager-sge
+
+GlobusRSL   = (jobType=single)(count=$real_cpu)(exclusive=1)
+Environment = "PE_MODE=single"
+
+should_transfer_files = yes
+WhenToTransferOutput  = ON_EXIT
+transfer_input_files  = in.tgz, $app
+HTCondor_LARGE
+
+		my $condor_large_script = path( $out, $chunk_name . "_condor_large_plus_combined$script_num.submit" )->canonpath;
+    	open( my $condor_large_fh, ">", $condor_large_script ) or die "Can't open large output file $condor_large_script:$!\n";
+    	say {$condor_large_fh} $condor_large;
+
+		#print for all jobs
+		my @returning_output;
+		foreach my $i (@next_large) {
+			my $blast_output = "${chunk_name}_largeoutplus$i";
+			push @returning_output, $blast_output;
+		}
+		say {$condor_large_fh} "transfer_output_files = ", join ", ", @returning_output;
+
+
+		my $condor_large2 = <<"HTCondor_LARGE2";
+
+Log    = log/bl_${chunk_name}_lp$script_num.\$(cluster).log
+Output = log/bl_${chunk_name}_lp$script_num.\$(cluster).out
+Error  = log/bl_${chunk_name}_lp$script_num.\$(cluster).err
+
+queue
+
+HTCondor_LARGE2
+
+		say {$condor_large_fh} $condor_large2;
+		
+		$log->info( "HTCondor large BLAST+ combined (jobs @next_large) script: $condor_large_script" );
+	}   #end while for each script
+
+
+	#SECOND PART
+	#build a queue for normal seq
+	my @normal = 1 ..$num_n;
+	my $script_num_n = 0;
+	while (my @next_normal = splice @normal, 0, $cpu) {
+		#say "@next_normal";
+		$script_num_n++;
+		my $real_cpu = @next_normal;
+
+		#construct script for HTCondor normal sequences
+		my $condor_normal = <<"HTCondor_NORMAL";
+Executable=bl_${chunk_name}_p$script_num_n.sh
+#Arguments=
+TransferExecutable = True
+Notification       = Complete
+notify_user        = msestak\@irb.hr
+universe           = grid
+grid_resource      = gt2 ce.srce.cro-ngi.hr/jobmanager-sge
+
+GlobusRSL   = (jobType=single)(count=$real_cpu)(exclusive=1)
+Environment = "PE_MODE=single"
+
+should_transfer_files = yes
+WhenToTransferOutput  = ON_EXIT
+transfer_input_files  = in.tgz, $app
+HTCondor_NORMAL
+
+		my $condor_normal_script = path( $out, $chunk_name . "_condor_normal_plus_combined$script_num_n.submit" )->canonpath;
+		open( my $condor_normal_fh, ">", $condor_normal_script ) or die "Can't open normal output file $condor_normal_script:$!\n";
+		say {$condor_normal_fh} $condor_normal;
+
+		#print for all jobs
+		my @returning_output_n;
+		foreach my $i (@next_normal) {
+			my $blast_output = "${chunk_name}_outplus$i";
+			push @returning_output_n, $blast_output;
+		}
+		say {$condor_normal_fh} "transfer_output_files = ", join ", ", @returning_output_n;
+
+
+		my $condor_normal2 = <<"HTCondor_NORMAL2";
+
+Log    = log/bl_${chunk_name}_p$script_num.\$(cluster).log
+Output = log/bl_${chunk_name}_p$script_num.\$(cluster).out
+Error  = log/bl_${chunk_name}_p$script_num.\$(cluster).err
+
+queue
+
+HTCondor_NORMAL2
+
+		say {$condor_normal_fh} $condor_normal2;
+		
+		$log->info( "HTCondor normal BLAST+ combined (jobs @next_normal) script: $condor_normal_script" );
+	}   #end while for each script
+
+    return;
+}
+
+
+### CLASS METHOD/INSTANCE METHOD/INTERFACE SUB/INTERNAL UTILITY ###
+# Usage      : condor_blast_combined_sh( $param_href )
+# Purpose    : creates HTCondor bash run scripts
+# Returns    : nothing
+# Parameters : $param_href
+# Throws     : croaks if wrong number of parameters
+# Comments   : creates 2 scripts for each job with 4 BLAST jobs inside
+#            : uberftp ce.srce.cro-ngi.hr to transfer db.tgz into $HOME/newdata/
+# See Also   : condor_blast_combined() which creates submit scripts
+sub condor_blast_combined_sh {
+    my $log = Log::Log4perl::get_logger("main");
+    $log->logcroak('condor_blast_combined_sh() needs a $param_href') unless @_ == 1;
+    my ($param_href) = @_;
+
+    my $out        = $param_href->{out}        or $log->logcroak('no out specified on command line!');
+    my $chunk_name = $param_href->{chunk_name} or $log->logcroak('no chunk_name specified on command line!');
+    my $cpu        = $param_href->{cpu}        or $log->logcroak('no cpu specified on command line!');
+    my $cpu_l      = $param_href->{cpu_l}      or $log->logcroak('no cpu_l specified on command line!');
+	my $num_l      = $param_href->{num_l}      // $log->logcroak('no num_l sent to sub!');   #can be 0 so checks for defindness
+	my $num_n      = $param_href->{num_n}      // $log->logcroak('no num_n sent to sub!');
+    my $db_name    = $param_href->{db_name}    or $log->logcroak('no db_name specified on command line!');
+    my $db_gz_name = $param_href->{db_gz_name} or $log->logcroak('no db_gz_name specified on command line!');
+    my $app        = defined $param_href->{app} ? $param_href->{app} : 'blastp';
+
+	#build a queue for large seq
+	my @large = 1 ..$num_l;
+	my $script_num = 0;
+	while (my @next_large = splice @large, 0, $cpu_l) {
+		#say "@next_large";
+		$script_num++;
+		my $real_cpu = @next_large;   #calculate real cpu usage
+
+        #construct script for HTCondor large sequences
+		my $condor_large = <<"HTCondor_LARGE";
+#!/bin/bash
+
+WORKDIR=\$PWD
+echo "SCRATCH_DIRECTORY (workdir) is:\$WORKDIR"
+HTCondor_LARGE
+
+		#name of the script here
+		my $condor_large_script = path( $out, "bl_${chunk_name}_lp$script_num.sh" )->canonpath;
+    	open( my $condor_large_fh, ">", $condor_large_script ) or die "Can't open large output file $condor_large_script:$!\n";
+    	say {$condor_large_fh} $condor_large;
+
+		# generate touch (output files)
+		my @returning_output;
+		foreach my $i (@next_large) {
+			my $blast_output = "${chunk_name}_largeoutplus$i";
+			push @returning_output, $blast_output;
+		}
+		say {$condor_large_fh} "touch @returning_output";
+
+		#second part of script
+		my $condor_large2 = <<"HTCondor_LARGE2";
+chmod +x blastp
+
+sleep 1
+echo "{\$(pwd)" && echo "\$(ls -lha)}"
+
+cd \$TMPDIR
+echo "TMPDIR is:\$TMPDIR"
+cp \$WORKDIR/* \$TMPDIR
+tar -zxf in.tgz
+tar -zxf \$HOME/newdata/$db_gz_name
+HTCondor_LARGE2
+
+		say {$condor_large_fh} $condor_large2;
+
+		# print BLAST+ command for all jobs
+		foreach my $i (@next_large) {
+			my $blast_cmd = qq{\$TMPDIR/blastp -db \$TMPDIR/$db_name -query \$TMPDIR/${chunk_name}_large$i -out \$TMPDIR/${chunk_name}_largeoutplus$i -evalue 1e-3 -outfmt 6 -seg yes -max_target_seqs 100000000 &};
+			say {$condor_large_fh} $blast_cmd;
+		}
+
+		#third part of script
+		my $condor_large3 = <<"HTCondor_LARGE3";
+
+sleep 1
+echo "\$(pgrep -fl blastp)"
+echo "{\$(pwd)" && echo "\$(ls -lha)}"
+
+#echo "\$(env)"
+
+wait
+HTCondor_LARGE3
+
+		say {$condor_large_fh} $condor_large3;
+
+		# copy to workdir (so HTCondor can return them back)
+		say {$condor_large_fh} "cp @returning_output \$WORKDIR";
+		
+		$log->info( "HTCondor large BLAST+ shell script: $condor_large_script" );
+	}   #end while for each script
+
+
+	#SECOND PART
+	#build a queue for normal seq
+	my @normal = 1 ..$num_n;
+	my $script_num_n = 0;
+	while (my @next_normal = splice @normal, 0, $cpu) {
+		#say "@next_normal";
+		$script_num_n++;
+		my $real_cpu = @next_normal;
+
+		#construct script for HTCondor normal sequences
+		my $condor_normal = <<"HTCondor_NORMAL";
+#!/bin/bash
+
+WORKDIR=\$PWD
+echo "SCRATCH_DIRECTORY (workdir) is:\$WORKDIR"
+HTCondor_NORMAL
+
+		# name of the script here
+		my $condor_normal_script = path( $out, "bl_${chunk_name}_p$script_num_n.sh" )->canonpath;
+    	open( my $condor_normal_fh, ">", $condor_normal_script ) or die "Can't open normal output file $condor_normal_script:$!\n";
+    	say {$condor_normal_fh} $condor_normal;
+
+		# print touch for all output files (just in case there is error)
+		my @returning_output_n;
+		foreach my $i (@next_normal) {
+			my $blast_output = "${chunk_name}_outplus$i";
+			push @returning_output_n, $blast_output;
+		}
+		say {$condor_normal_fh} "touch @returning_output_n";
+
+		# second part of script
+		my $condor_normal2 = <<"HTCondor_NORMAL2";
+chmod +x blastp
+
+sleep 1
+echo "{\$(pwd)" && echo "\$(ls -lha)}"
+
+cd \$TMPDIR
+echo "TMPDIR is:\$TMPDIR"
+cp \$WORKDIR/* \$TMPDIR
+tar -zxf in.tgz
+tar -zxf \$HOME/newdata/$db_gz_name
+HTCondor_NORMAL2
+
+		say {$condor_normal_fh} $condor_normal2;
+
+		# print BLAST+ jobs
+		foreach my $i (@next_normal) {
+			my $blast_cmd = qq{\$TMPDIR/blastp -db \$TMPDIR/$db_name -query \$TMPDIR/${chunk_name}$i -out \$TMPDIR/${chunk_name}_outplus$i -evalue 1e-3 -outfmt 6 -seg yes -max_target_seqs 100000000 &};
+			say {$condor_normal_fh} $blast_cmd;
+		}
+
+		# third part of script
+		my $condor_normal3 = <<"HTCondor_NORMAL3";
+
+sleep 1
+echo "\$(pgrep -fl blastp)"
+echo "{\$(pwd)" && echo "\$(ls -lha)}"
+
+#echo "\$(env)"
+
+wait
+HTCondor_NORMAL3
+
+		say {$condor_normal_fh} $condor_normal3;
+
+		# copy output files back to workdir for HTCondor to return them back
+		say {$condor_normal_fh} "cp @returning_output_n \$WORKDIR";
+		
+		$log->info( "HTCondor normal BLAST+ shell script: $condor_normal_script" );
+	}   #end while for each script
+
+    return;
+}
+
+
+
+
 1;
 __END__
 
@@ -327,7 +966,13 @@ PsiBlastHelper - It's modulino that splits fasta input file into number of chunk
 
 =head1 SYNOPSIS
 
-    use PsiBlastHelper;
+    # test example
+    lib/PsiBlastHelper.pm --infile=t/data/dm_splicvar --out=t/data/dm_chunks/ --chunk_name=dm --chunk_num=140 --size 3000 --cpu 5 --cpu_l 5 --db_name=dbfull --db_path=/shared/msestak/db_full_plus --db_gz_name=dbfull_plus_format_new.tar.gz
+
+    # possible options for BLAST database
+    --db_name=dbfull  --db_path=/shared/msestak/db_full_plus --db_gz_name=dbfull_plus_format_new.tar.gz
+    --db_name=db90    --db_path=/shared/msestak/db90_plus    --db_gz_name=db90_plus_format_new.tar.gz
+    --db_name=db90old --db_path=/shared/msestak/db90old      --db_gz_name=db90old_format.tar.gz
 
 =head1 DESCRIPTION
 

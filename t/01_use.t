@@ -9,6 +9,10 @@ my @subs = qw(
   main
   init_logging
   get_parameters_from_cmd
+  write_chunks
+  sge_blast_combined
+  condor_blast_combined
+  condor_blast_combined_sh
 );
 
 use_ok( $module, @subs);
