@@ -16,6 +16,7 @@ my @subs = qw(
   sge_psiblast_combined
   condor_psiblast_combined
   condor_psiblast_combined_sh
+  sge_hmmer
 );
 
 use_ok( $module, @subs);

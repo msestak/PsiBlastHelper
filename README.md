@@ -4,13 +4,19 @@ PsiBlastHelper - It's modulino that splits fasta input file into number of chunk
 
 # SYNOPSIS
 
-    # test example
-    lib/PsiBlastHelper.pm --infile=t/data/dm_splicvar --out=t/data/dm_chunks/ --chunk_name=dm --chunk_size=100 --fasta_size 10000 --cpu 500 --cpu_l 500 --db_name=dbfull --db_path=/shared/msestak/db_full_plus --db_gz_name=dbfull_plus_format_new.tar.gz
+    # test example for BLAST and PSI-BLAST
+    lib/PsiBlastHelper.pm --infile=t/data/dm_splicvar --out=t/data/dm_chunks/ --chunk_name=dm --chunk_size=1000 --fasta_size 10000 --cpu 5 --cpu_l 5 --db_name=dbfull --db_path=/shared/msestak/db_full_plus --db_gz_name=dbfull_plus_format_new.tar.gz
+
+    # test example for HMMER
+    lib/PsiBlastHelper.pm --infile=t/data/dm_splicvar --out=t/data/dm_chunks/ --chunk_name=dm --chunk_size=1000 --fasta_size 10000 --cpu 5 --cpu_l 5 --db_name=dbfull --db_path=/shared/msestak/dbfull --db_gz_name=dbfull.gz
 
     # possible options for BLAST database
     --db_name=dbfull  --db_path=/shared/msestak/db_full_plus --db_gz_name=dbfull_plus_format_new.tar.gz
     --db_name=db90    --db_path=/shared/msestak/db90_plus    --db_gz_name=db90_plus_format_new.tar.gz
     --db_name=db90old --db_path=/shared/msestak/db90old      --db_gz_name=db90old_format.tar.gz
+
+    # options for HMMER database
+    --db_name=dbfull  --db_path=/shared/msestak/dbfull --db_gz_name=dbfull.gz
 
 # DESCRIPTION
 
@@ -25,8 +31,8 @@ All paths are hardcoded to ISABELLA cluster at tannat.srce.hr and CRO-NGI grid.
 
 For help write:
 
-        perl FastaSplit.pm -h
-        perl FastaSplit.pm -m
+    perl FastaSplit.pm -h
+    perl FastaSplit.pm -m
 
 # LICENSE
 
