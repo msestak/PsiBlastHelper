@@ -28,6 +28,8 @@ our @EXPORT_OK = qw{
   condor_psiblast_combined
   condor_psiblast_combined_sh
   sge_hmmer
+  condor_hmmer
+  condor_hmmer_sh
 
 };
 
@@ -76,7 +78,9 @@ sub run {
         sge_psiblast_combined       => \&sge_psiblast_combined,
         condor_psiblast_combined    => \&condor_psiblast_combined,
         condor_psiblast_combined_sh => \&condor_psiblast_combined_sh,
-        sge_hmmer     => \&sge_hmmer,
+        sge_hmmer       => \&sge_hmmer,
+        condor_hmmer    => \&condor_hmmer,
+        condor_hmmer_sh => \&condor_hmmer_sh,
 
     );
     foreach my $write_mode ( sort keys %subs ) {
@@ -151,7 +155,7 @@ sub get_parameters_from_cmd {
         'out|o=s'       => \$cli{out},
         'outfile|of=s'  => \$cli{outfile},
 
-        'chunk_size|n=i'     => \$cli{chunk_size},
+        'chunk_size|n=i'    => \$cli{chunk_size},
         'chunk_name|name=s' => \$cli{chunk_name},
         'top|t=i'           => \$cli{top},
         'fasta_size|s=i'    => \$cli{fasta_size},
@@ -162,6 +166,9 @@ sub get_parameters_from_cmd {
         'db_gz_name|dgn=s'  => \$cli{db_gz_name},
         'db_path|dp=s'      => \$cli{db_path},
         'app|ap=s'          => \$cli{app},
+
+        # grid
+        'grid_address=s' => \$cli{grid_address},
 
         'mode|mo=s{1,}' => \$cli{mode},       #accepts 1 or more arguments
         'append|a'      => \$cli{append},     #flag
@@ -327,7 +334,7 @@ sub init_logging {
 }
 
 
-### WORKING SUB ###
+### INTERFACE SUB ###
 # Usage      : split_fasta(  );
 # Purpose    : splits fasta file into chunks
 # Returns    : nothing
@@ -428,7 +435,7 @@ sub _load_fasta {
 }
 
 
-### CLASS METHOD/INSTANCE METHOD/INTERFACE SUB/INTERNAL UTILITY ###
+### INTERNAL UTILITY ###
 # Usage      : my ($only_normal_href, $longest_cnt) = _print_longest_seq( { fasta => $fasta_href, %{$param_href} } );
 # Purpose    : prints longest sequences separately 
 # Returns    : 
@@ -571,7 +578,7 @@ sub _print_normal_seq {
 }
 
 
-### WORKING SUB ###
+### INTERFACE SUB ###
 # Usage      : sge_blast_combined();
 # Purpose    : writes SGE SCRIPTS for BLAST+ files split_fasta() generated
 # Returns    : nothing
@@ -711,7 +718,7 @@ SGE_NORMAL
 }
 
 
-### CLASS METHOD/INSTANCE METHOD/INTERFACE SUB/INTERNAL UTILITY ###
+### INTERFACE SUB ###
 # Usage      : condor_blast_combined( $param_href )
 # Purpose    : creates HTCondor submit scripts
 # Returns    : nothing
@@ -846,7 +853,7 @@ HTCondor_NORMAL2
 }
 
 
-### CLASS METHOD/INSTANCE METHOD/INTERFACE SUB/INTERNAL UTILITY ###
+### INTERFACE SUB ###
 # Usage      : condor_blast_combined_sh( $param_href )
 # Purpose    : creates HTCondor bash run scripts
 # Returns    : nothing
@@ -1018,7 +1025,7 @@ HTCondor_NORMAL3
 }
 
 
-### WORKING SUB ###
+### INTERFACE SUB ###
 # Usage      : sge_psiblast_combined();
 # Purpose    : writes SGE SCRIPTS for PSI-BLAST+ files split_fasta() generated
 # Returns    : nothing
@@ -1158,7 +1165,7 @@ SGE_NORMAL
 }
 
 
-### CLASS METHOD/INSTANCE METHOD/INTERFACE SUB/INTERNAL UTILITY ###
+### INTERFACE SUB ###
 # Usage      : condor_psiblast_combined( $param_href )
 # Purpose    : creates HTCondor PSI_BLAST+ submit scripts
 # Returns    : nothing
@@ -1222,9 +1229,9 @@ HTCondor_LARGE
 
         my $condor_large2 = <<"HTCondor_LARGE2";
 
-Log    = log/bl_${chunk_name}_lp$script_num.\$(cluster).log
-Output = log/bl_${chunk_name}_lp$script_num.\$(cluster).out
-Error  = log/bl_${chunk_name}_lp$script_num.\$(cluster).err
+Log    = log/psibl_${chunk_name}_lp$script_num.\$(cluster).log
+Output = log/psibl_${chunk_name}_lp$script_num.\$(cluster).out
+Error  = log/psibl_${chunk_name}_lp$script_num.\$(cluster).err
 
 queue
 
@@ -1279,9 +1286,9 @@ HTCondor_NORMAL
 
         my $condor_normal2 = <<"HTCondor_NORMAL2";
 
-Log    = log/bl_${chunk_name}_p$script_num.\$(cluster).log
-Output = log/bl_${chunk_name}_p$script_num.\$(cluster).out
-Error  = log/bl_${chunk_name}_p$script_num.\$(cluster).err
+Log    = log/psibl_${chunk_name}_p$script_num.\$(cluster).log
+Output = log/psibl_${chunk_name}_p$script_num.\$(cluster).out
+Error  = log/psibl_${chunk_name}_p$script_num.\$(cluster).err
 
 queue
 
@@ -1296,7 +1303,7 @@ HTCondor_NORMAL2
 }
 
 
-### CLASS METHOD/INSTANCE METHOD/INTERFACE SUB/INTERNAL UTILITY ###
+### INTERFACE SUB ###
 # Usage      : condor_psiblast_combined_sh( $param_href )
 # Purpose    : creates HTCondor bash run scripts
 # Returns    : nothing
@@ -1473,7 +1480,7 @@ HTCondor_NORMAL3
 }
 
 
-### WORKING SUB ###
+### INTERFACE SUB ###
 # Usage      : sge_hmmer();
 # Purpose    : writes SGE SCRIPTS for HMMER files split_fasta() generated
 # Returns    : nothing
@@ -1609,6 +1616,317 @@ SGE_NORMAL
     return;
 }
 
+
+### INTERFACE SUB ###
+# Usage      : condor_hmmer( $param_href )
+# Purpose    : creates HTCondor HMMER submit scripts
+# Returns    : nothing
+# Parameters : $param_href
+# Throws     : croaks if wrong number of parameters
+# Comments   : creates 2 scripts that starts HTCondor
+# See Also   : condor_hmmer_sh() which creates run scripts
+sub condor_hmmer {
+    my $log = Log::Log4perl::get_logger("main");
+    $log->logcroak('condor_hmmer() needs a $param_href') unless @_ == 1;
+    my ($param_href) = @_;
+
+    my $out        = $param_href->{out}        or $log->logcroak('no out specified on command line!');
+    my $chunk_name = $param_href->{chunk_name} or $log->logcroak('no chunk_name specified on command line!');
+    my $cpu        = $param_href->{cpu}        or $log->logcroak('no cpu specified on command line!');
+    my $cpu_l      = $param_href->{cpu_l}      or $log->logcroak('no cpu_l specified on command line!');
+    my $num_l = $param_href->{num_l} // $log->logcroak('no num_l sent to sub!');    #can be 0 so checks for defindness
+    my $num_n = $param_href->{num_n} // $log->logcroak('no num_n sent to sub!');
+    my $app = defined $param_href->{app} ? $param_href->{app} : 'phmmer';
+    my $grid_address = defined $param_href->{grid_address} ? $param_href->{grid_address} : 'ce.srce.cro-ngi.hr';
+
+    #build a queue for large seq
+    my @large      = 1 .. $num_l;
+    my $script_num = 0;
+    while ( my @next_large = splice @large, 0, 1 ) {
+
+        #say "@next_large";
+        $script_num++;
+
+        #construct script for HTCondor large sequences
+        my $condor_large = <<"HTCondor_LARGE";
+Executable=hmmer_${chunk_name}_lp$script_num.sh
+#Arguments=
+TransferExecutable = True
+Notification       = Complete
+notify_user        = msestak\@irb.hr
+universe           = grid
+grid_resource      = gt2 $grid_address/jobmanager-sge
+
+GlobusRSL   = (jobType=single)(count=$cpu_l)(exclusive=1)
+Environment = "PE_MODE=single"
+
+should_transfer_files = yes
+WhenToTransferOutput  = ON_EXIT
+transfer_input_files  = in.tgz, $app
+HTCondor_LARGE
+
+        my $condor_large_script
+          = path( $out, $chunk_name . "_condor_large_hmmer$script_num.submit" )->canonpath;
+        open( my $condor_large_fh, ">", $condor_large_script )
+          or die "Can't open large output file $condor_large_script:$!\n";
+        say {$condor_large_fh} $condor_large;
+
+        #print for all jobs
+        my @returning_output;
+        foreach my $i (@next_large) {
+            my $hmmer_output = "${chunk_name}_largehmmerout$i";
+            push @returning_output, $hmmer_output;
+        }
+        say {$condor_large_fh} "transfer_output_files = ", join ", ", @returning_output;
+
+        my $condor_large2 = <<"HTCondor_LARGE2";
+
+Log    = log/hmmer_${chunk_name}_lp$script_num.\$(cluster).log
+Output = log/hmmer_${chunk_name}_lp$script_num.\$(cluster).out
+Error  = log/hmmer_${chunk_name}_lp$script_num.\$(cluster).err
+
+queue
+
+HTCondor_LARGE2
+
+        say {$condor_large_fh} $condor_large2;
+
+        $log->info("HTCondor large HMMER (job @next_large) script: $condor_large_script");
+    }    #end while for each script
+
+    #SECOND PART
+    #build a queue for normal seq
+    my @normal       = 1 .. $num_n;
+    my $script_num_n = 0;
+    while ( my @next_normal = splice @normal, 0, 1 ) {
+
+        #say "@next_normal";
+        $script_num_n++;
+
+        #construct script for HTCondor normal sequences
+        my $condor_normal = <<"HTCondor_NORMAL";
+Executable=hmmer_${chunk_name}_p$script_num_n.sh
+#Arguments=
+TransferExecutable = True
+Notification       = Complete
+notify_user        = msestak\@irb.hr
+universe           = grid
+grid_resource      = gt2 $grid_address/jobmanager-sge
+
+GlobusRSL   = (jobType=single)(count=$cpu)(exclusive=1)
+Environment = "PE_MODE=single"
+
+should_transfer_files = yes
+WhenToTransferOutput  = ON_EXIT
+transfer_input_files  = in.tgz, $app
+HTCondor_NORMAL
+
+        my $condor_normal_script
+          = path( $out, $chunk_name . "_condor_hmmer$script_num_n.submit" )->canonpath;
+        open( my $condor_normal_fh, ">", $condor_normal_script )
+          or die "Can't open normal output file $condor_normal_script:$!\n";
+        say {$condor_normal_fh} $condor_normal;
+
+        #print for all jobs
+        my @returning_output_n;
+        foreach my $i (@next_normal) {
+            my $hmmer_output = "${chunk_name}_hmmerout$i";
+            push @returning_output_n, $hmmer_output;
+        }
+        say {$condor_normal_fh} "transfer_output_files = ", join ", ", @returning_output_n;
+
+        my $condor_normal2 = <<"HTCondor_NORMAL2";
+
+Log    = log/hmmer_${chunk_name}_p$script_num.\$(cluster).log
+Output = log/hmmer_${chunk_name}_p$script_num.\$(cluster).out
+Error  = log/hmmer_${chunk_name}_p$script_num.\$(cluster).err
+
+queue
+
+HTCondor_NORMAL2
+
+        say {$condor_normal_fh} $condor_normal2;
+
+        $log->info("HTCondor normal HMMER (job @next_normal) script: $condor_normal_script");
+    }    #end while for each script
+
+    return;
+}
+
+
+### INTERFACE SUB ###
+# Usage      : condor_hmmer_sh( $param_href )
+# Purpose    : creates HTCondor bash run scripts
+# Returns    : nothing
+# Parameters : $param_href
+# Throws     : croaks if wrong number of parameters
+# Comments   : creates 2 scripts for each job with 4 BLAST jobs inside
+#            : uberftp ce.srce.cro-ngi.hr to transfer db.tgz into $HOME/newdata/
+# See Also   : condor_hmmer() which creates submit scripts
+sub condor_hmmer_sh {
+    my $log = Log::Log4perl::get_logger("main");
+    $log->logcroak('condor_hmmer_sh() needs a $param_href') unless @_ == 1;
+    my ($param_href) = @_;
+
+    my $out        = $param_href->{out}        or $log->logcroak('no out specified on command line!');
+    my $chunk_name = $param_href->{chunk_name} or $log->logcroak('no chunk_name specified on command line!');
+    my $cpu        = $param_href->{cpu}        or $log->logcroak('no cpu specified on command line!');
+    my $cpu_l      = $param_href->{cpu_l}      or $log->logcroak('no cpu_l specified on command line!');
+    my $num_l = $param_href->{num_l} // $log->logcroak('no num_l sent to sub!');    #can be 0 so checks for defindness
+    my $num_n = $param_href->{num_n} // $log->logcroak('no num_n sent to sub!');
+    my $db_name    = $param_href->{db_name}    or $log->logcroak('no db_name specified on command line!');
+    my $db_gz_name = $param_href->{db_gz_name} or $log->logcroak('no db_gz_name specified on command line!');
+    my $app = defined $param_href->{app} ? $param_href->{app} : 'phmmer';
+
+    #build a queue for large seq
+    my @large      = 1 .. $num_l;
+    my $script_num = 0;
+    while ( my @next_large = splice @large, 0, 1 ) {
+
+        #say "@next_large";
+        $script_num++;
+
+        #construct script for HTCondor large sequences
+        my $condor_large = <<"HTCondor_LARGE";
+#!/bin/bash
+
+WORKDIR=\$PWD
+echo "SCRATCH_DIRECTORY (workdir) is:\$WORKDIR"
+HTCondor_LARGE
+
+        #name of the script here
+        my $condor_large_script = path( $out, "hmmer_${chunk_name}_lp$script_num.sh" )->canonpath;
+        open( my $condor_large_fh, ">", $condor_large_script )
+          or die "Can't open large output file $condor_large_script:$!\n";
+        say {$condor_large_fh} $condor_large;
+
+        # generate touch (output files)
+        my @returning_output;
+        foreach my $i (@next_large) {
+            my $hmmer_output = "${chunk_name}_largehmmerout$i";
+            push @returning_output, $hmmer_output;
+        }
+        say {$condor_large_fh} "touch @returning_output";
+
+        #second part of script
+        my $condor_large2 = <<"HTCondor_LARGE2";
+chmod +x phmmer
+
+sleep 1
+echo "{\$(pwd)" && echo "\$(ls -lha)}"
+
+cd \$TMPDIR
+echo "TMPDIR is:\$TMPDIR"
+cp \$WORKDIR/* \$TMPDIR
+tar -zxf in.tgz
+gzip -c -d \$HOME/newdata/$db_gz_name > \$TMPDIR/$db_name
+HTCondor_LARGE2
+
+        say {$condor_large_fh} $condor_large2;
+
+        # print PSI-BLAST+ command for all jobs
+        foreach my $i (@next_large) {
+            my $hmmer_cmd
+              = qq{\$TMPDIR/$app -o /dev/null --tblout \$TMPDIR/${chunk_name}_largehmmerout$i -E 0.001 --incE 0.001 --qformat fasta --tformat fasta --cpu $cpu_l \$TMPDIR/${chunk_name}_large$i \$TMPDIR/$db_name & };
+            say {$condor_large_fh} $hmmer_cmd;
+        }
+
+        #third part of script
+        my $condor_large3 = <<"HTCondor_LARGE3";
+
+sleep 1
+echo "\$(pgrep -fl phmmer)"
+echo "{\$(pwd)" && echo "\$(ls -lha)}"
+
+#echo "\$(env)"
+
+wait
+HTCondor_LARGE3
+
+        say {$condor_large_fh} $condor_large3;
+
+        # copy to workdir (so HTCondor can return them back)
+        say {$condor_large_fh} "cp @returning_output \$WORKDIR";
+
+        $log->info("HTCondor large HMMER shell script: $condor_large_script");
+    }    #end while for each script
+
+    #SECOND PART
+    #build a queue for normal seq
+    my @normal       = 1 .. $num_n;
+    my $script_num_n = 0;
+    while ( my @next_normal = splice @normal, 0, 1 ) {
+
+        #say "@next_normal";
+        $script_num_n++;
+
+        #construct script for HTCondor normal sequences
+        my $condor_normal = <<"HTCondor_NORMAL";
+#!/bin/bash
+
+WORKDIR=\$PWD
+echo "SCRATCH_DIRECTORY (workdir) is:\$WORKDIR"
+HTCondor_NORMAL
+
+        # name of the script here
+        my $condor_normal_script = path( $out, "hmmer_${chunk_name}_p$script_num_n.sh" )->canonpath;
+        open( my $condor_normal_fh, ">", $condor_normal_script )
+          or die "Can't open normal output file $condor_normal_script:$!\n";
+        say {$condor_normal_fh} $condor_normal;
+
+        # print touch for all output files (just in case there is error)
+        my @returning_output_n;
+        foreach my $i (@next_normal) {
+            my $hmmer_output = "${chunk_name}_hmmerout$i";
+            push @returning_output_n, $hmmer_output;
+        }
+        say {$condor_normal_fh} "touch @returning_output_n";
+
+        # second part of script
+        my $condor_normal2 = <<"HTCondor_NORMAL2";
+chmod +x phmmer
+
+sleep 1
+echo "{\$(pwd)" && echo "\$(ls -lha)}"
+
+cd \$TMPDIR
+echo "TMPDIR is:\$TMPDIR"
+cp \$WORKDIR/* \$TMPDIR
+tar -zxf in.tgz
+gzip -c -d \$HOME/newdata/$db_gz_name > \$TMPDIR/$db_name
+HTCondor_NORMAL2
+
+        say {$condor_normal_fh} $condor_normal2;
+
+        # print PSI-BLAST+ jobs
+        foreach my $i (@next_normal) {
+            my $hmmer_cmd
+              = qq{\$TMPDIR/$app -o /dev/null --tblout \$TMPDIR/${chunk_name}_hmmerout$i -E 0.001 --incE 0.001 --qformat fasta --tformat fasta --cpu $cpu \$TMPDIR/${chunk_name}$i \$TMPDIR/$db_name & };
+            say {$condor_normal_fh} $hmmer_cmd;
+        }
+
+        # third part of script
+        my $condor_normal3 = <<"HTCondor_NORMAL3";
+
+sleep 1
+echo "\$(pgrep -fl phmmer)"
+echo "{\$(pwd)" && echo "\$(ls -lha)}"
+
+#echo "\$(env)"
+
+wait
+HTCondor_NORMAL3
+
+        say {$condor_normal_fh} $condor_normal3;
+
+        # copy output files back to workdir for HTCondor to return them back
+        say {$condor_normal_fh} "cp @returning_output_n \$WORKDIR";
+
+        $log->info("HTCondor normal HMMER shell script: $condor_normal_script");
+    }    #end while for each script
+
+    return;
+}
 
 1;
 __END__
