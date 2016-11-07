@@ -1935,7 +1935,7 @@ __END__
 
 =head1 NAME
 
-PsiBlastHelper - It's modulino that splits fasta input file into number of chunks for BLAST, PSI-BLAST and HMMER to run them on cluster or grid
+PsiBlastHelper - It's modulino that splits fasta input file into number of chunks for BLAST, PSI-BLAST and HMMER. It also writes SGE and HTCondor scripts to run these jobs on cluster or grid.
 
 =head1 SYNOPSIS
 
@@ -1955,11 +1955,11 @@ PsiBlastHelper - It's modulino that splits fasta input file into number of chunk
 
 =head1 DESCRIPTION
 
-PsiBlastHelper is modulino that splits fasta file (input) into a number of chunks for parallel BLAST++, PSI-BLAST or HMMER (default is all of them).
-Chunks get short name + different number for each chunk (+ sufix '_large' if larger than -s or in top N sequences by size).
-You need to provide input file, size of the chunk, chunk name and either top n or length of sequences to run separately. 
-You also meed provide --cpu or --cpu_l to split manual SGE or HTCondor on this number of jobs. The idea here is to reduce a number of BLAST database copies (e.g., for every job),
-which can lead to failed jobs if out of disk space on specific node.
+PsiBlastHelper is modulino that splits fasta file (input) into a number of chunks for parallel BLAST++, PSI-BLAST or HMMER.
+Chunks get short name + different number for each chunk (+ sufix '_large' if larger than --fast_size or in top N sequences by size). This is because BLAST works really slowly for large sequences and they are processed separetly one by one.
+You need to provide input file, size of the chunk, chunk name and either top N or length of sequences to run separately. 
+You also meed provide --cpu or --cpu_l to split SGE or HTCondor script on this number of jobs. The idea here is to reduce a number of BLAST database copies, which can lead to failed jobs if out of disk space on specific node. This means that one job = one database copy and multiple BLAST processes.
+
 You can also use -a (--append) to append remainder of sequences to last file or to create new file with this remainder, which is default.
 After splitting sequences it also prints SGE and HTCondor jobs bash scripts.
 All paths are hardcoded to ISABELLA cluster at tannat.srce.hr and CRO-NGI grid.
@@ -1978,7 +1978,7 @@ it under the same terms as Perl itself.
 
 =head1 AUTHOR
 
-mocnii E<lt>msestak@irb.hrE<gt>
+Martin Sebastijan Šestak E<lt>msestak@irb.hrE<gt>
 
 =cut
 
