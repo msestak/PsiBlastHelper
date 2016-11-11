@@ -738,6 +738,7 @@ sub condor_blast_combined {
 	my $num_l      = $param_href->{num_l}      // $log->logcroak('no num_l sent to sub!');   #can be 0 so checks for defindness
 	my $num_n      = $param_href->{num_n}      // $log->logcroak('no num_n sent to sub!');
     my $app        = defined $param_href->{app} ? $param_href->{app} : 'blastp';
+    my $grid_address = defined $param_href->{grid_address} ? $param_href->{grid_address} : 'ce.srce.cro-ngi.hr';
 
 	#build a queue for large seq
 	my @large = 1 ..$num_l;
@@ -755,7 +756,7 @@ TransferExecutable = True
 Notification       = Complete
 notify_user        = msestak\@irb.hr
 universe           = grid
-grid_resource      = gt2 ce.srce.cro-ngi.hr/jobmanager-sge
+grid_resource      = gt2 $grid_address/jobmanager-sge
 
 GlobusRSL   = (jobType=single)(count=$real_cpu)(exclusive=1)
 Environment = "PE_MODE=single"
@@ -811,7 +812,7 @@ TransferExecutable = True
 Notification       = Complete
 notify_user        = msestak\@irb.hr
 universe           = grid
-grid_resource      = gt2 ce.srce.cro-ngi.hr/jobmanager-sge
+grid_resource      = gt2 $grid_address/jobmanager-sge
 
 GlobusRSL   = (jobType=single)(count=$real_cpu)(exclusive=1)
 Environment = "PE_MODE=single"
@@ -1185,6 +1186,7 @@ sub condor_psiblast_combined {
     my $num_l = $param_href->{num_l} // $log->logcroak('no num_l sent to sub!');    #can be 0 so checks for defindness
     my $num_n = $param_href->{num_n} // $log->logcroak('no num_n sent to sub!');
     my $app = defined $param_href->{app} ? $param_href->{app} : 'psiblast';
+    my $grid_address = defined $param_href->{grid_address} ? $param_href->{grid_address} : 'ce.srce.cro-ngi.hr';
 
     #build a queue for large seq
     my @large      = 1 .. $num_l;
@@ -1203,7 +1205,7 @@ TransferExecutable = True
 Notification       = Complete
 notify_user        = msestak\@irb.hr
 universe           = grid
-grid_resource      = gt2 ce.srce.cro-ngi.hr/jobmanager-sge
+grid_resource      = gt2 $grid_address/jobmanager-sge
 
 GlobusRSL   = (jobType=single)(count=$real_cpu)(exclusive=1)
 Environment = "PE_MODE=single"
@@ -1260,7 +1262,7 @@ TransferExecutable = True
 Notification       = Complete
 notify_user        = msestak\@irb.hr
 universe           = grid
-grid_resource      = gt2 ce.srce.cro-ngi.hr/jobmanager-sge
+grid_resource      = gt2 $grid_address/jobmanager-sge
 
 GlobusRSL   = (jobType=single)(count=$real_cpu)(exclusive=1)
 Environment = "PE_MODE=single"
