@@ -632,6 +632,8 @@ mkdir -p \$TMPDIR/out
 mkdir -p \$TMPDIR/in
 cp -uvR $db_path/* \$TMPDIR/db/
 cp -uvR $input_files_large \$TMPDIR/in
+cp /home/msestak/ncbi-blast-2.5.0+/bin/blastp \$TMPDIR/
+chmod +x \$TMPDIR/blastp
 SGE_LARGE
 
 		my $sge_large_script = path( $out, $chunk_name . "_sge_large_plus_combined$script_num.submit" )->canonpath;
@@ -689,6 +691,8 @@ mkdir -p \$TMPDIR/out
 mkdir -p \$TMPDIR/in
 cp -uvR $db_path/* \$TMPDIR/db/
 cp -uvR $input_files_normal \$TMPDIR/in
+cp /home/msestak/ncbi-blast-2.5.0+/bin/blastp \$TMPDIR/
+chmod +x \$TMPDIR/blastp
 SGE_NORMAL
 
 		my $sge_normal_script = path( $out, $chunk_name . "_sge_normal_plus_combined$script_num_n.submit" )->canonpath;
