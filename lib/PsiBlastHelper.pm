@@ -165,7 +165,9 @@ sub get_parameters_from_cmd {
         'db_name|dn=s'      => \$cli{db_name},
         'db_gz_name|dgn=s'  => \$cli{db_gz_name},
         'db_path|dp=s'      => \$cli{db_path},
-        'app|ap=s'          => \$cli{app},
+        'app=s'             => \$cli{app},
+        'app_path=s'        => \$cli{app_path},
+        'email=s'           => \$cli{email},
 
         # grid
         'grid_address=s' => \$cli{grid_address},
@@ -600,6 +602,9 @@ sub sge_blast_combined {
     my $db_path    = $param_href->{db_path}    or $log->logcroak('no db_path specified on command line!');
     my $db_name    = $param_href->{db_name}    or $log->logcroak('no db_name specified on command line!');
     my $app        = defined $param_href->{app} ? $param_href->{app} : 'blastp';
+    my $app_path   = $param_href->{app_path}   or $log->logcroak('no app_path specified on command line!');
+    my $email      = $param_href->{email}      or $log->logcroak('no email specified on command line!');
+	my $path_app_long = path($app_path, $app)->absolute;
 
 	#build a queue for large seq
 	my @large = 1 ..$num_l;
@@ -622,7 +627,7 @@ sub sge_blast_combined {
 #\$ -N bl_${chunk_name}_lp$script_num
 #\$ -cwd
 #\$ -m abe
-#\$ -M msestak\@irb.hr
+#\$ -M $email
 #\$ -pe mpisingle $real_cpu
 #\$ -R y
 #\$ -l exclusive=1
@@ -632,8 +637,8 @@ mkdir -p \$TMPDIR/out
 mkdir -p \$TMPDIR/in
 cp -uvR $db_path/* \$TMPDIR/db/
 cp -uvR $input_files_large \$TMPDIR/in
-cp /home/msestak/ncbi-blast-2.5.0+/bin/blastp \$TMPDIR/
-chmod +x \$TMPDIR/blastp
+cp $path_app_long \$TMPDIR/
+chmod +x \$TMPDIR/$app
 SGE_LARGE
 
 		my $sge_large_script = path( $out, $chunk_name . "_sge_large_plus_combined$script_num.submit" )->canonpath;
@@ -681,7 +686,7 @@ SGE_LARGE
 #\$ -N bl_${chunk_name}_p$script_num_n
 #\$ -cwd
 #\$ -m abe
-#\$ -M msestak\@irb.hr
+#\$ -M $email
 #\$ -pe mpisingle $real_cpu
 #\$ -R y
 #\$ -l exclusive=1
@@ -691,8 +696,8 @@ mkdir -p \$TMPDIR/out
 mkdir -p \$TMPDIR/in
 cp -uvR $db_path/* \$TMPDIR/db/
 cp -uvR $input_files_normal \$TMPDIR/in
-cp /home/msestak/ncbi-blast-2.5.0+/bin/blastp \$TMPDIR/
-chmod +x \$TMPDIR/blastp
+cp $path_app_long \$TMPDIR/
+chmod +x \$TMPDIR/$app
 SGE_NORMAL
 
 		my $sge_normal_script = path( $out, $chunk_name . "_sge_normal_plus_combined$script_num_n.submit" )->canonpath;
@@ -743,6 +748,9 @@ sub condor_blast_combined {
 	my $num_n      = $param_href->{num_n}      // $log->logcroak('no num_n sent to sub!');
     my $app        = defined $param_href->{app} ? $param_href->{app} : 'blastp';
     my $grid_address = defined $param_href->{grid_address} ? $param_href->{grid_address} : 'ce.srce.cro-ngi.hr';
+    my $app_path   = $param_href->{app_path}   or $log->logcroak('no app_path specified on command line!');
+    my $email      = $param_href->{email}      or $log->logcroak('no email specified on command line!');
+	my $path_app_long = path($app_path, $app)->absolute;
 
 	#build a queue for large seq
 	my @large = 1 ..$num_l;
@@ -758,7 +766,7 @@ Executable=bl_${chunk_name}_lp$script_num.sh
 #Arguments=
 TransferExecutable = True
 Notification       = Complete
-notify_user        = msestak\@irb.hr
+notify_user        = $email
 universe           = grid
 grid_resource      = gt2 $grid_address/jobmanager-sge
 
@@ -767,7 +775,7 @@ Environment = "PE_MODE=single"
 
 should_transfer_files = yes
 WhenToTransferOutput  = ON_EXIT
-transfer_input_files  = in.tgz, $app
+transfer_input_files  = in.tgz, $path_app_long
 HTCondor_LARGE
 
 		my $condor_large_script = path( $out, $chunk_name . "_condor_large_plus_combined$script_num.submit" )->canonpath;
@@ -814,7 +822,7 @@ Executable=bl_${chunk_name}_p$script_num_n.sh
 #Arguments=
 TransferExecutable = True
 Notification       = Complete
-notify_user        = msestak\@irb.hr
+notify_user        = $email
 universe           = grid
 grid_resource      = gt2 $grid_address/jobmanager-sge
 
@@ -823,7 +831,7 @@ Environment = "PE_MODE=single"
 
 should_transfer_files = yes
 WhenToTransferOutput  = ON_EXIT
-transfer_input_files  = in.tgz, $app
+transfer_input_files  = in.tgz, $path_app_long
 HTCondor_NORMAL
 
 		my $condor_normal_script = path( $out, $chunk_name . "_condor_normal_plus_combined$script_num_n.submit" )->canonpath;
@@ -1052,6 +1060,9 @@ sub sge_psiblast_combined {
     my $db_path    = $param_href->{db_path}    or $log->logcroak('no db_path specified on command line!');
     my $db_name    = $param_href->{db_name}    or $log->logcroak('no db_name specified on command line!');
     my $app        = defined $param_href->{app} ? $param_href->{app} : 'psiblast';
+    my $app_path   = $param_href->{app_path}   or $log->logcroak('no app_path specified on command line!');
+    my $email      = $param_href->{email}      or $log->logcroak('no email specified on command line!');
+	my $path_app_long = path($app_path, $app)->absolute;
 
 	#build a queue for large seq
 	my @large = 1 ..$num_l;
@@ -1074,7 +1085,7 @@ sub sge_psiblast_combined {
 #\$ -N psibl_${chunk_name}_lp$script_num
 #\$ -cwd
 #\$ -m abe
-#\$ -M msestak\@irb.hr
+#\$ -M $email
 #\$ -pe mpisingle $real_cpu
 #\$ -R y
 #\$ -l exclusive=1
@@ -1084,6 +1095,8 @@ mkdir -p \$TMPDIR/out
 mkdir -p \$TMPDIR/in
 cp -uvR $db_path/* \$TMPDIR/db/
 cp -uvR $input_files_large \$TMPDIR/in
+cp $path_app_long \$TMPDIR/
+chmod +x \$TMPDIR/$app
 SGE_LARGE
 
 		my $sge_large_script = path( $out, $chunk_name . "_sge_psiblast_large_plus_combined$script_num.submit" )->canonpath;
@@ -1141,6 +1154,8 @@ mkdir -p \$TMPDIR/out
 mkdir -p \$TMPDIR/in
 cp -uvR $db_path/* \$TMPDIR/db/
 cp -uvR $input_files_normal \$TMPDIR/in
+cp $path_app_long \$TMPDIR/
+chmod +x \$TMPDIR/$app
 SGE_NORMAL
 
 		my $sge_normal_script = path( $out, $chunk_name . "_sge_psiblast_normal_plus_combined$script_num_n.submit" )->canonpath;
@@ -1191,6 +1206,9 @@ sub condor_psiblast_combined {
     my $num_n = $param_href->{num_n} // $log->logcroak('no num_n sent to sub!');
     my $app = defined $param_href->{app} ? $param_href->{app} : 'psiblast';
     my $grid_address = defined $param_href->{grid_address} ? $param_href->{grid_address} : 'ce.srce.cro-ngi.hr';
+    my $app_path   = $param_href->{app_path}   or $log->logcroak('no app_path specified on command line!');
+    my $email      = $param_href->{email}      or $log->logcroak('no email specified on command line!');
+	my $path_app_long = path($app_path, $app)->absolute;
 
     #build a queue for large seq
     my @large      = 1 .. $num_l;
@@ -1207,7 +1225,7 @@ Executable=psibl_${chunk_name}_lp$script_num.sh
 #Arguments=
 TransferExecutable = True
 Notification       = Complete
-notify_user        = msestak\@irb.hr
+notify_user        = $email
 universe           = grid
 grid_resource      = gt2 $grid_address/jobmanager-sge
 
@@ -1216,7 +1234,7 @@ Environment = "PE_MODE=single"
 
 should_transfer_files = yes
 WhenToTransferOutput  = ON_EXIT
-transfer_input_files  = in.tgz, $app
+transfer_input_files  = in.tgz, $path_app_long
 HTCondor_LARGE
 
         my $condor_large_script
@@ -1264,7 +1282,7 @@ Executable=psibl_${chunk_name}_p$script_num_n.sh
 #Arguments=
 TransferExecutable = True
 Notification       = Complete
-notify_user        = msestak\@irb.hr
+notify_user        = $email
 universe           = grid
 grid_resource      = gt2 $grid_address/jobmanager-sge
 
@@ -1273,7 +1291,7 @@ Environment = "PE_MODE=single"
 
 should_transfer_files = yes
 WhenToTransferOutput  = ON_EXIT
-transfer_input_files  = in.tgz, $app
+transfer_input_files  = in.tgz, $path_app_long
 HTCondor_NORMAL
 
         my $condor_normal_script
@@ -1508,6 +1526,9 @@ sub sge_hmmer {
     my $db_path    = $param_href->{db_path}    or $log->logcroak('no db_path specified on command line!');
     my $db_name    = $param_href->{db_name}    or $log->logcroak('no db_name specified on command line!');
     my $app        = defined $param_href->{app} ? $param_href->{app} : 'phmmer';
+    my $app_path   = $param_href->{app_path}   or $log->logcroak('no app_path specified on command line!');
+    my $email      = $param_href->{email}      or $log->logcroak('no email specified on command line!');
+	my $path_app_long = path($app_path, $app)->absolute;
 
 	#build a queue for large seq
 	my @large = 1 ..$num_l;
@@ -1529,7 +1550,7 @@ sub sge_hmmer {
 #\$ -N hmmer_${chunk_name}_lp$script_num
 #\$ -cwd
 #\$ -m abe
-#\$ -M msestak\@irb.hr
+#\$ -M $email
 #\$ -pe mpisingle $cpu_l
 #\$ -R y
 #\$ -l exclusive=1
@@ -1539,6 +1560,8 @@ mkdir -p \$TMPDIR/out
 mkdir -p \$TMPDIR/in
 cp -uvR $db_path \$TMPDIR/db/
 cp -uvR $input_files_large \$TMPDIR/in
+cp $path_app_long \$TMPDIR/
+chmod +x \$TMPDIR/$app
 SGE_LARGE
 
 		my $sge_large_script = path( $out, $chunk_name . "_sge_hmmer_large$script_num.submit" )->canonpath;
@@ -1584,7 +1607,7 @@ SGE_LARGE
 #\$ -N bl_${chunk_name}_p$script_num_n
 #\$ -cwd
 #\$ -m abe
-#\$ -M msestak\@irb.hr
+#\$ -M $email
 #\$ -pe mpisingle $cpu
 #\$ -R y
 #\$ -l exclusive=1
@@ -1594,6 +1617,8 @@ mkdir -p \$TMPDIR/out
 mkdir -p \$TMPDIR/in
 cp -uvR $db_path \$TMPDIR/db/
 cp -uvR $input_files_normal \$TMPDIR/in
+cp $path_app_long \$TMPDIR/
+chmod +x \$TMPDIR/$app
 SGE_NORMAL
 
 		my $sge_normal_script = path( $out, $chunk_name . "_sge_hmmer_normal$script_num_n.submit" )->canonpath;
@@ -1644,6 +1669,9 @@ sub condor_hmmer {
     my $num_n = $param_href->{num_n} // $log->logcroak('no num_n sent to sub!');
     my $app = defined $param_href->{app} ? $param_href->{app} : 'phmmer';
     my $grid_address = defined $param_href->{grid_address} ? $param_href->{grid_address} : 'ce.srce.cro-ngi.hr';
+    my $app_path   = $param_href->{app_path}   or $log->logcroak('no app_path specified on command line!');
+    my $email      = $param_href->{email}      or $log->logcroak('no email specified on command line!');
+    my $path_app_long = path($app_path, $app)->absolute;
 
     #build a queue for large seq
     my @large      = 1 .. $num_l;
@@ -1659,7 +1687,7 @@ Executable=hmmer_${chunk_name}_lp$script_num.sh
 #Arguments=
 TransferExecutable = True
 Notification       = Complete
-notify_user        = msestak\@irb.hr
+notify_user        = $email
 universe           = grid
 grid_resource      = gt2 $grid_address/jobmanager-sge
 
@@ -1668,7 +1696,7 @@ Environment = "PE_MODE=single"
 
 should_transfer_files = yes
 WhenToTransferOutput  = ON_EXIT
-transfer_input_files  = in.tgz, $app
+transfer_input_files  = in.tgz, $path_app_long
 HTCondor_LARGE
 
         my $condor_large_script
@@ -1715,7 +1743,7 @@ Executable=hmmer_${chunk_name}_p$script_num_n.sh
 #Arguments=
 TransferExecutable = True
 Notification       = Complete
-notify_user        = msestak\@irb.hr
+notify_user        = $email
 universe           = grid
 grid_resource      = gt2 $grid_address/jobmanager-sge
 
@@ -1724,7 +1752,7 @@ Environment = "PE_MODE=single"
 
 should_transfer_files = yes
 WhenToTransferOutput  = ON_EXIT
-transfer_input_files  = in.tgz, $app
+transfer_input_files  = in.tgz, $path_app_long
 HTCondor_NORMAL
 
         my $condor_normal_script
@@ -1946,10 +1974,18 @@ PsiBlastHelper - It's modulino that splits fasta input file into number of chunk
 =head1 SYNOPSIS
 
     # test example for BLAST and PSI-BLAST
-    lib/PsiBlastHelper.pm --infile=t/data/dm_splicvar --out=t/data/dm_chunks/ --chunk_name=dm --chunk_size=1000 --fasta_size 10000 --cpu 5 --cpu_l 5 --db_name=dbfull --db_path=/shared/msestak/db_full_plus --db_gz_name=dbfull_plus_format_new.tar.gz
+    lib/PsiBlastHelper.pm --infile=t/data/dm_splicvar \
+    --out=t/data/dm_chunks/ --chunk_name=dm --chunk_size=1000 --fasta_size 10000 \
+    --cpu 5 --cpu_l 5 \
+    --db_name=dbfull --db_path=/shared/msestak/db_full_plus --db_gz_name=dbfull_plus_format_new.tar.gz \
+    --email=msestak@irb.hr --app_path=/home/msestak/ncbi-blast-2.5.0+/bin/
 
     # test example for HMMER
-    lib/PsiBlastHelper.pm --infile=t/data/dm_splicvar --out=t/data/dm_chunks/ --chunk_name=dm --chunk_size=1000 --fasta_size 10000 --cpu 5 --cpu_l 5 --db_name=dbfull --db_path=/shared/msestak/dbfull --db_gz_name=dbfull.gz
+    lib/PsiBlastHelper.pm --infile=t/data/dm_splicvar \
+    --out=t/data/dm_chunks/ --chunk_name=dm --chunk_size=1000 --fasta_size 10000 \
+    --cpu 5 --cpu_l 5 \
+    --db_name=dbfull --db_path=/shared/msestak/dbfull --db_gz_name=dbfull.gz \
+    --email=msestak@irb.hr --app_path=/home/msestak/hmmer-3.1b2-linux-intel-x86_64/binaries/
 
     # possible options for BLAST database
     --db_name=dbfull  --db_path=/shared/msestak/db_full_plus --db_gz_name=dbfull_plus_format_new.tar.gz

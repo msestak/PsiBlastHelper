@@ -5,10 +5,18 @@ PsiBlastHelper - It's modulino that splits fasta input file into number of chunk
 # SYNOPSIS
 
     # test example for BLAST and PSI-BLAST
-    lib/PsiBlastHelper.pm --infile=t/data/dm_splicvar --out=t/data/dm_chunks/ --chunk_name=dm --chunk_size=1000 --fasta_size 10000 --cpu 5 --cpu_l 5 --db_name=dbfull --db_path=/shared/msestak/db_full_plus --db_gz_name=dbfull_plus_format_new.tar.gz
+    lib/PsiBlastHelper.pm --infile=t/data/dm_splicvar \
+    --out=t/data/dm_chunks/ --chunk_name=dm --chunk_size=1000 --fasta_size 10000 \
+    --cpu 5 --cpu_l 5 \
+    --db_name=dbfull --db_path=/shared/msestak/db_full_plus --db_gz_name=dbfull_plus_format_new.tar.gz \
+    --email=msestak@irb.hr --app_path=/home/msestak/ncbi-blast-2.5.0+/bin/
 
     # test example for HMMER
-    lib/PsiBlastHelper.pm --infile=t/data/dm_splicvar --out=t/data/dm_chunks/ --chunk_name=dm --chunk_size=1000 --fasta_size 10000 --cpu 5 --cpu_l 5 --db_name=dbfull --db_path=/shared/msestak/dbfull --db_gz_name=dbfull.gz
+    lib/PsiBlastHelper.pm --infile=t/data/dm_splicvar \
+    --out=t/data/dm_chunks/ --chunk_name=dm --chunk_size=1000 --fasta_size 10000 \
+    --cpu 5 --cpu_l 5 \
+    --db_name=dbfull --db_path=/shared/msestak/dbfull --db_gz_name=dbfull.gz \
+    --email=msestak@irb.hr --app_path=/home/msestak/hmmer-3.1b2-linux-intel-x86_64/binaries/
 
     # possible options for BLAST database
     --db_name=dbfull  --db_path=/shared/msestak/db_full_plus --db_gz_name=dbfull_plus_format_new.tar.gz
