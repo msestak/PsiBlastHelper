@@ -4,6 +4,8 @@ PsiBlastHelper - It's modulino that splits fasta input file into number of chunk
 
 # SYNOPSIS
 
+    # run separately for BLAST and HMMER because application path changes
+
     # test example for BLAST and PSI-BLAST
     lib/PsiBlastHelper.pm --infile=t/data/dm_splicvar \
     --out=t/data/dm_chunks/ --chunk_name=dm --chunk_size=1000 --fasta_size 10000 \

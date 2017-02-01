@@ -660,7 +660,7 @@ SGE_LARGE
 			say {$sge_large_fh} $cp_cmd;
 		}
 		
-		$log->info( "SGE large BLAST+ combined (jobs @next_large) script: $sge_large_script" );
+		$log->debug( "SGE large BLAST+ combined (jobs @next_large) script: $sge_large_script" );
 	}   #end while
 
 
@@ -719,7 +719,7 @@ SGE_NORMAL
 			say {$sge_normal_fh} $cp_cmd;
 		}
 
-		$log->info( "SGE normal BLAST+ combined (jobs @next_normal) script: $sge_normal_script" );
+		$log->debug( "SGE normal BLAST+ combined (jobs @next_normal) script: $sge_normal_script" );
 
 	}   #end while
 
@@ -803,7 +803,7 @@ HTCondor_LARGE2
 
 		say {$condor_large_fh} $condor_large2;
 		
-		$log->info( "HTCondor large BLAST+ combined (jobs @next_large) script: $condor_large_script" );
+		$log->debug( "HTCondor large BLAST+ combined (jobs @next_large) script: $condor_large_script" );
 	}   #end while for each script
 
 
@@ -859,7 +859,7 @@ HTCondor_NORMAL2
 
 		say {$condor_normal_fh} $condor_normal2;
 		
-		$log->info( "HTCondor normal BLAST+ combined (jobs @next_normal) script: $condor_normal_script" );
+		$log->debug( "HTCondor normal BLAST+ combined (jobs @next_normal) script: $condor_normal_script" );
 	}   #end while for each script
 
     return;
@@ -958,7 +958,7 @@ HTCondor_LARGE3
 		# copy to workdir (so HTCondor can return them back)
 		say {$condor_large_fh} "cp @returning_output \$WORKDIR";
 		
-		$log->info( "HTCondor large BLAST+ shell script: $condor_large_script" );
+		$log->debug( "HTCondor large BLAST+ shell script: $condor_large_script" );
 	}   #end while for each script
 
 
@@ -1031,7 +1031,7 @@ HTCondor_NORMAL3
 		# copy output files back to workdir for HTCondor to return them back
 		say {$condor_normal_fh} "cp @returning_output_n \$WORKDIR";
 		
-		$log->info( "HTCondor normal BLAST+ shell script: $condor_normal_script" );
+		$log->debug( "HTCondor normal BLAST+ shell script: $condor_normal_script" );
 	}   #end while for each script
 
     return;
@@ -1118,7 +1118,7 @@ SGE_LARGE
 			say {$sge_large_fh} $cp_cmd;
 		}
 		
-		$log->info( "SGE large PSI-BLAST+ combined (jobs @next_large) script: $sge_large_script" );
+		$log->debug( "SGE large PSI-BLAST+ combined (jobs @next_large) script: $sge_large_script" );
 	}   #end while
 
 
@@ -1177,7 +1177,7 @@ SGE_NORMAL
 			say {$sge_normal_fh} $cp_cmd;
 		}
 
-		$log->info( "SGE normal PSI-BLAST+ combined (jobs @next_normal) script: $sge_normal_script" );
+		$log->debug( "SGE normal PSI-BLAST+ combined (jobs @next_normal) script: $sge_normal_script" );
 
 	}   #end while
 
@@ -1263,7 +1263,7 @@ HTCondor_LARGE2
 
         say {$condor_large_fh} $condor_large2;
 
-        $log->info("HTCondor large PSI-BLAST+ combined (jobs @next_large) script: $condor_large_script");
+        $log->debug("HTCondor large PSI-BLAST+ combined (jobs @next_large) script: $condor_large_script");
     }    #end while for each script
 
     #SECOND PART
@@ -1320,7 +1320,7 @@ HTCondor_NORMAL2
 
         say {$condor_normal_fh} $condor_normal2;
 
-        $log->info("HTCondor normal PSI-BLAST+ combined (jobs @next_normal) script: $condor_normal_script");
+        $log->debug("HTCondor normal PSI-BLAST+ combined (jobs @next_normal) script: $condor_normal_script");
     }    #end while for each script
 
     return;
@@ -1422,7 +1422,7 @@ HTCondor_LARGE3
         # copy to workdir (so HTCondor can return them back)
         say {$condor_large_fh} "cp @returning_output \$WORKDIR";
 
-        $log->info("HTCondor large PSI-BLAST+ shell script: $condor_large_script");
+        $log->debug("HTCondor large PSI-BLAST+ shell script: $condor_large_script");
     }    #end while for each script
 
     #SECOND PART
@@ -1497,7 +1497,7 @@ HTCondor_NORMAL3
         # copy output files back to workdir for HTCondor to return them back
         say {$condor_normal_fh} "cp @returning_output_n \$WORKDIR";
 
-        $log->info("HTCondor normal PSI-BLAST+ shell script: $condor_normal_script");
+        $log->debug("HTCondor normal PSI-BLAST+ shell script: $condor_normal_script");
     }    #end while for each script
 
     return;
@@ -1583,7 +1583,7 @@ SGE_LARGE
 			say {$sge_large_fh} $cp_cmd;
 		}
 		
-		$log->info( "SGE large HMMER (jobs @next_large) script: $sge_large_script" );
+		$log->debug( "SGE large HMMER (jobs @next_large) script: $sge_large_script" );
 	}   #end while
 
 
@@ -1640,7 +1640,7 @@ SGE_NORMAL
 			say {$sge_normal_fh} $cp_cmd;
 		}
 
-		$log->info( "SGE normal HMMER (jobs @next_normal) script: $sge_normal_script" );
+		$log->debug( "SGE normal HMMER (jobs @next_normal) script: $sge_normal_script" );
 
 	}   #end while
 
@@ -1725,7 +1725,7 @@ HTCondor_LARGE2
 
         say {$condor_large_fh} $condor_large2;
 
-        $log->info("HTCondor large HMMER (job @next_large) script: $condor_large_script");
+        $log->debug("HTCondor large HMMER (job @next_large) script: $condor_large_script");
     }    #end while for each script
 
     #SECOND PART
@@ -1781,7 +1781,7 @@ HTCondor_NORMAL2
 
         say {$condor_normal_fh} $condor_normal2;
 
-        $log->info("HTCondor normal HMMER (job @next_normal) script: $condor_normal_script");
+        $log->debug("HTCondor normal HMMER (job @next_normal) script: $condor_normal_script");
     }    #end while for each script
 
     return;
@@ -1882,7 +1882,7 @@ HTCondor_LARGE3
         # copy to workdir (so HTCondor can return them back)
         say {$condor_large_fh} "cp @returning_output \$WORKDIR";
 
-        $log->info("HTCondor large HMMER shell script: $condor_large_script");
+        $log->debug("HTCondor large HMMER shell script: $condor_large_script");
     }    #end while for each script
 
     #SECOND PART
@@ -1956,7 +1956,7 @@ HTCondor_NORMAL3
         # copy output files back to workdir for HTCondor to return them back
         say {$condor_normal_fh} "cp @returning_output_n \$WORKDIR";
 
-        $log->info("HTCondor normal HMMER shell script: $condor_normal_script");
+        $log->debug("HTCondor normal HMMER shell script: $condor_normal_script");
     }    #end while for each script
 
     return;
@@ -1972,6 +1972,8 @@ __END__
 PsiBlastHelper - It's modulino that splits fasta input file into number of chunks for BLAST, PSI-BLAST and HMMER. It also writes SGE and HTCondor scripts to run these jobs on cluster or grid.
 
 =head1 SYNOPSIS
+
+    # run separately for BLAST and HMMER because application path changes
 
     # test example for BLAST and PSI-BLAST
     lib/PsiBlastHelper.pm --infile=t/data/dm_splicvar \
