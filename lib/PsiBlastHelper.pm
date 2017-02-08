@@ -3,7 +3,6 @@ package PsiBlastHelper;
 use 5.010;
 use strict;
 use warnings;
-no warnings 'experimental::smartmatch';
 use Exporter qw/import/;
 use Carp;
 use Getopt::Long;
