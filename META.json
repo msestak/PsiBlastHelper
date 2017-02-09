@@ -1,7 +1,7 @@
 {
    "abstract" : "It's modulino that splits fasta input file into number of chunks for BLAST, PSI-BLAST and HMMER. It also writes SGE and HTCondor scripts to run these jobs on cluster or grid.",
    "author" : [
-      "Martin Sebastijan Šestak <msestak@irb.hr>"
+      "Martin Sebastijan Šestak <martin.s.sestak@gmail.com>"
    ],
    "dynamic_config" : 0,
    "generated_by" : "Minilla/v3.0.4, CPAN::Meta::Converter version 2.150010",
@@ -75,5 +75,8 @@
       }
    },
    "version" : "0.01",
+   "x_contributors" : [
+      "Martin Sebastijan Šestak <msestak@irb.hr>"
+   ],
    "x_serialization_backend" : "JSON::PP version 2.27400"
 }
