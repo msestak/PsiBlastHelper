@@ -405,14 +405,16 @@ sub _load_fasta {
     while ( my $line = <$fh_instream> ) {
         chomp $line;
 
-        if ($line =~ m{\A([^\s+]+)\s+    #header of seq till first space
-                (.+)\z                   #fasta_seq
+        if ($line =~ m{\A([^\n]+)\n    #header of seq till first new line
+                (.+)\z                 #fasta_seq
                 }xms
           )
         {
             $countseq++;
             my $header = $1;
+            #say "HEADER:$header";
             my $fasta_seq = $2;
+            #say "FASTA:$fasta_seq";
             $fasta_seq =~ s/\R//g;
             $fasta_seq = uc $fasta_seq;
             $fasta_seq =~ tr/A-Z*//dc;
@@ -420,6 +422,9 @@ sub _load_fasta {
 
             # add to complex hash
             $fasta{$header} = [ $fasta_len, $fasta_seq ];
+        }
+        else {
+            say "ERROR_SEQ:$line";
         }
     }
     close $fh_instream;
